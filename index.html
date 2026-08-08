@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Draft six legendary fighters, pass the device, and settle a cinematic 3v3 power clash."
+      content="Draft six legendary fighters, pass the device, and settle a cinematic winner-stays-on 3v3 power clash."
     />
     <meta name="theme-color" content="#08090c" />
     <meta property="og:title" content="1v1 Spinner Fighter" />
@@ -19,8 +19,8 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
     <title>1v1 Spinner Fighter — Pass &amp; Play</title>
-    <link rel="stylesheet" href="styles.css" />
-    <script type="module" src="script.js"></script>
+    <link rel="stylesheet" href="styles.css?v=20260809-2" />
+    <script type="module" src="script.js?v=20260809-2"></script>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -44,7 +44,7 @@
           <p class="kicker">THE SAME-DEVICE MULTIVERSE DRAFT</p>
           <h1 id="hero-title">SPIN YOUR THREE.<br /><span>SETTLE THE IMPOSSIBLE.</span></h1>
           <p class="hero-deck">
-            Two players secretly summon three fighters each, then reveal their squads for a power-ranked 3v3 clash.
+            Two players secretly summon three fighters each, then reveal power-ranked squads for a winner-stays-on 3v3 endurance clash.
           </p>
           <div class="hero-actions">
             <button class="primary-button hero-button" id="start-game" type="button">
@@ -160,7 +160,7 @@
             <p class="kicker">SQUADS REVEALED · AUTO-SORTED BY POWER</p>
             <h2 id="reveal-title">THE MATCHUP</h2>
           </div>
-          <div class="match-format"><b>3</b><span>HEAD-TO-HEAD<br />CLASHES</span></div>
+          <div class="match-format"><b>HP</b><span>POWER BECOMES<br />FIGHTER HEALTH</span></div>
         </div>
         <div class="lineup-versus">
           <div class="lineup-side player-one-side">
@@ -174,16 +174,16 @@
           </div>
         </div>
         <div class="center-action">
-          <p>Boundless fighters mutually nullify. Every other matchup goes to the greater power level.</p>
-          <button class="primary-button" id="begin-battle" type="button">BEGIN 3V3 CLASH</button>
+          <p>Strongest enters first. The winner keeps only the health left after subtracting the opponent, then faces the next fighter. Boundless pairs nullify.</p>
+          <button class="primary-button" id="begin-battle" type="button">BEGIN ENDURANCE CLASH</button>
         </div>
       </section>
 
       <section class="screen battle-screen" id="battle-screen" aria-labelledby="battle-title" hidden>
         <div class="battle-topline">
-          <div><span>PLAYER 1</span><b id="battle-score-one">0</b></div>
-          <p id="battle-title">CLASH <b id="clash-number">01</b> / 03</p>
-          <div><b id="battle-score-two">0</b><span>PLAYER 2</span></div>
+          <div><span>PLAYER 1 LEFT</span><b id="battle-score-one">3</b></div>
+          <p id="battle-title">CLASH <b id="clash-number">01</b> <span id="clash-total">/ 03</span></p>
+          <div><b id="battle-score-two">3</b><span>PLAYER 2 LEFT</span></div>
         </div>
         <div class="clash-arena" id="clash-arena">
           <div class="clash-energy energy-one" aria-hidden="true"></div>

@@ -1,15 +1,17 @@
-import { animeCharacters } from "./data/anime.js";
-import { dcCharacters, marvelCharacters } from "./data/comics.js";
-import { menaceCharacters } from "./data/menaces.js";
+import { animeCharacters } from "./data/anime.js?v=20260809-2";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-2";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-2";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
+  formatHealth,
   formatPower,
   powerScore,
   powerTier,
+  powerToHealth,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js";
+} from "./game-logic.js?v=20260809-2";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -53,6 +55,7 @@ const beginBattle = $("#begin-battle");
 const battleScoreOne = $("#battle-score-one");
 const battleScoreTwo = $("#battle-score-two");
 const clashNumber = $("#clash-number");
+const clashTotal = $("#clash-total");
 const clashArena = $("#clash-arena");
 const battleCardOne = $("#battle-card-one");
 const battleCardTwo = $("#battle-card-two");
@@ -93,6 +96,9 @@ const state = {
 class SoundEngine {
   constructor() {
     this.context = null;
+    this.master = null;
+    this.compressor = null;
+    this.activeNodes = new Set();
     this.enabled = readSoundPreference();
   }
 
@@ -100,7 +106,18 @@ class SoundEngine {
     if (!this.enabled) return;
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
-    if (!this.context) this.context = new AudioContext();
+    if (!this.context) {
+      this.context = new AudioContext();
+      this.master = this.context.createGain();
+      this.compressor = this.context.createDynamicsCompressor();
+      this.master.gain.value = 0.72;
+      this.compressor.threshold.value = -18;
+      this.compressor.knee.value = 16;
+      this.compressor.ratio.value = 5;
+      this.compressor.attack.value = 0.006;
+      this.compressor.release.value = 0.18;
+      this.master.connect(this.compressor).connect(this.context.destination);
+    }
     if (this.context.state === "suspended") this.context.resume();
   }
 
@@ -108,19 +125,39 @@ class SoundEngine {
     if (!this.enabled) return;
     this.arm();
     if (!this.context) return;
+    const scale = reducedMotion ? 0.38 : 1;
     const { delay = 0, type = "sine", volume = 0.035, endFrequency = frequency } = options;
-    const start = this.context.currentTime + delay;
+    const scaledDuration = Math.max(0.025, duration * scale);
+    const start = this.context.currentTime + delay * scale;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
+    const activeNode = { oscillator, gain };
+    this.activeNodes.add(activeNode);
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(Math.max(35, frequency), start);
-    oscillator.frequency.exponentialRampToValueAtTime(Math.max(35, endFrequency), start + duration);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(35, endFrequency), start + scaledDuration);
     gain.gain.setValueAtTime(0.0001, start);
     gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    oscillator.connect(gain).connect(this.context.destination);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + scaledDuration);
+    oscillator.connect(gain).connect(this.master);
     oscillator.start(start);
-    oscillator.stop(start + duration + 0.02);
+    oscillator.stop(start + scaledDuration + 0.02);
+    oscillator.addEventListener("ended", () => this.activeNodes.delete(activeNode), { once: true });
+  }
+
+  stopAll() {
+    if (!this.context) return;
+    const now = this.context.currentTime;
+    this.activeNodes.forEach(({ oscillator, gain }) => {
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setTargetAtTime(0.0001, now, 0.012);
+        oscillator.stop(now + 0.05);
+      } catch {
+        // The node may already have ended.
+      }
+    });
+    this.activeNodes.clear();
   }
 
   tap() {
@@ -128,8 +165,8 @@ class SoundEngine {
   }
 
   wheel() {
-    for (let index = 0; index < 12; index += 1) {
-      const delay = index * (0.055 + index * 0.008);
+    for (let index = 0; index < 15; index += 1) {
+      const delay = index * (0.05 + index * 0.007);
       this.tone(170 + index * 21, 0.045, { delay, type: "square", volume: 0.015 });
     }
   }
@@ -155,6 +192,47 @@ class SoundEngine {
   verdict(winner) {
     const notes = winner ? [330, 495, 660] : [280, 260, 240];
     notes.forEach((note, index) => this.tone(note, 0.22, { delay: index * 0.1, type: "triangle", volume: 0.025 }));
+  }
+
+  lock(power) {
+    const score = powerScore(power);
+    const base = score === Infinity ? 520 : Math.min(620, 210 + score * 4);
+    [1, 1.25, 1.5].forEach((ratio, index) => {
+      this.tone(base * ratio, 0.18, { delay: index * 0.075, type: "triangle", volume: 0.022 });
+    });
+  }
+
+  handoff() {
+    this.tone(410, 0.44, { type: "sine", volume: 0.025, endFrequency: 130 });
+    this.tone(220, 0.35, { delay: 0.1, type: "triangle", volume: 0.018, endFrequency: 520 });
+  }
+
+  battleStart() {
+    [110, 165, 247, 370].forEach((note, index) => {
+      this.tone(note, 0.34, { delay: index * 0.11, type: "sawtooth", volume: 0.02, endFrequency: note * 1.22 });
+    });
+  }
+
+  drain(isKnockout = false) {
+    this.tone(isKnockout ? 240 : 360, isKnockout ? 0.52 : 0.34, {
+      type: "sawtooth",
+      volume: isKnockout ? 0.035 : 0.022,
+      endFrequency: isKnockout ? 48 : 150,
+    });
+    if (isKnockout) {
+      [210, 150, 90].forEach((note, index) => this.tone(note, 0.18, { delay: 0.14 + index * 0.1, type: "square", volume: 0.015 }));
+    }
+  }
+
+  nullify() {
+    this.tone(180, 0.72, { type: "sawtooth", volume: 0.026, endFrequency: 178 });
+    this.tone(183, 0.72, { type: "sawtooth", volume: 0.026, endFrequency: 181 });
+  }
+
+  final(winner) {
+    this.stopAll();
+    const notes = winner ? [196, 294, 392, 587] : [260, 247, 233];
+    notes.forEach((note, index) => this.tone(note, 0.42, { delay: index * 0.13, type: "triangle", volume: 0.032 }));
   }
 }
 
@@ -197,11 +275,11 @@ function wait(milliseconds) {
 
 function escapeHtml(value) {
   return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function initials(name) {
@@ -211,6 +289,13 @@ function initials(name) {
 
 function categoryLabel(character) {
   return character.categoryLabel || character.source;
+}
+
+function healthPercent(current, maximum) {
+  if (current === Infinity && maximum === Infinity) return 100;
+  if (current === 0n || maximum === 0n) return 0;
+  const tenths = Number((current * 1000n) / maximum) / 10;
+  return Math.max(1, Math.min(100, tenths));
 }
 
 function showScreen(id) {
@@ -240,7 +325,7 @@ async function getCharacterImage(character) {
 
   const request = (async () => {
     try {
-      const title = encodeURIComponent(character.wiki.replaceAll(" ", "_"));
+      const title = encodeURIComponent(character.wiki.replace(/ /g, "_"));
       const summaryResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
       if (summaryResponse.ok) {
         const summary = await summaryResponse.json();
@@ -280,11 +365,28 @@ async function hydratePortrait(root, character) {
   }, { once: true });
 }
 
-function fighterCard(character, cardNumber = "") {
+function fighterCard(character, cardNumber = "", healthState = null) {
   const tier = powerTier(character.power);
   const card = document.createElement("article");
   card.className = "fighter-card";
   card.dataset.tier = tier;
+  if (healthState) card.classList.add("has-health");
+  const healthMarkup = healthState
+    ? `
+      <div class="battle-health" role="progressbar" aria-label="${escapeHtml(character.name)} health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${healthPercent(healthState.current, healthState.maximum)}">
+        <div class="battle-health-copy">
+          <span>HEALTH REMAINING</span>
+          <strong data-health-value>${escapeHtml(formatHealth(healthState.current))}</strong>
+        </div>
+        <div class="battle-health-track"><span data-health-fill style="width: ${healthPercent(healthState.current, healthState.maximum)}%"></span></div>
+      </div>
+    `
+    : `
+      <div class="power-readout" title="Fan-made power value: ${escapeHtml(character.power)}">
+        <span>POWER LEVEL</span>
+        <strong>${escapeHtml(formatPower(character.power))}</strong>
+      </div>
+    `;
   card.innerHTML = `
     <div class="fighter-portrait" data-portrait>
       <span class="fighter-fallback">${escapeHtml(initials(character.name))}</span>
@@ -297,14 +399,48 @@ function fighterCard(character, cardNumber = "") {
       <span class="source">${escapeHtml(character.source)}</span>
       <h3>${escapeHtml(character.name)}</h3>
       <p class="form">${escapeHtml(character.form)}</p>
-      <div class="power-readout" title="Fan-made power value: ${escapeHtml(character.power)}">
-        <span>POWER LEVEL</span>
-        <strong>${escapeHtml(formatPower(character.power))}</strong>
-      </div>
+      ${healthMarkup}
     </div>
   `;
+  if (healthState) {
+    card.combatMaximum = healthState.maximum;
+    card.combatCurrent = healthState.current;
+  }
   hydratePortrait(card, character);
   return card;
+}
+
+function emergencyRevealCard(character) {
+  const card = document.createElement("article");
+  card.className = "reveal-fallback-card";
+  const portrait = document.createElement("div");
+  portrait.className = "reveal-fallback-portrait";
+  portrait.textContent = initials(character.name);
+  const source = document.createElement("span");
+  source.textContent = character.source;
+  const name = document.createElement("h3");
+  name.textContent = character.name;
+  const form = document.createElement("p");
+  form.textContent = character.form;
+  const power = document.createElement("strong");
+  power.textContent = formatPower(character.power);
+  card.append(portrait, source, name, form, power);
+  return card;
+}
+
+function updateCardHealth(slot, health, eliminated) {
+  const card = $(".fighter-card", slot);
+  if (!card || card.combatMaximum === undefined) return;
+  card.combatCurrent = health;
+  const percent = healthPercent(health, card.combatMaximum);
+  const fill = $("[data-health-fill]", card);
+  const value = $("[data-health-value]", card);
+  const progress = $(".battle-health", card);
+  fill.style.width = `${percent}%`;
+  value.textContent = formatHealth(health);
+  progress.setAttribute("aria-valuenow", String(percent));
+  card.classList.toggle("is-exhausted", eliminated);
+  card.classList.toggle("is-survivor", !eliminated);
 }
 
 function lineupCard(character, rank) {
@@ -361,6 +497,7 @@ function resetState() {
 }
 
 function startNewGame() {
+  sound.stopAll();
   sound.arm();
   sound.tap();
   resetState();
@@ -461,7 +598,12 @@ async function spinCharacter() {
 
   reelStage.hidden = true;
   revealStage.hidden = false;
-  draftCardMount.replaceChildren(fighterCard(state.selectedCharacter, `P${state.activePlayer + 1} · 0${state.teams[state.activePlayer].length + 1}`));
+  try {
+    draftCardMount.replaceChildren(fighterCard(state.selectedCharacter, `P${state.activePlayer + 1} · 0${state.teams[state.activePlayer].length + 1}`));
+  } catch (error) {
+    console.error("Fighter card rendering fell back to the compatibility layout.", error);
+    draftCardMount.replaceChildren(emergencyRevealCard(state.selectedCharacter));
+  }
   state.phase = "lock";
   state.busy = false;
   spinAction.disabled = false;
@@ -475,7 +617,7 @@ async function lockCharacter() {
   if (state.busy || state.phase !== "lock" || !state.selectedCharacter) return;
   state.busy = true;
   spinAction.disabled = true;
-  sound.tap();
+  sound.lock(state.selectedCharacter.power);
   const team = state.teams[state.activePlayer];
   team.push(state.selectedCharacter);
   state.used.add(state.selectedCharacter.id);
@@ -504,6 +646,7 @@ function renderLockedOnly() {
 
 function showHandoff() {
   state.busy = false;
+  sound.handoff();
   if (state.activePlayer === 0) {
     state.handoffMode = "player-two";
     handoffKicker.textContent = "PLAYER 1 SQUAD LOCKED";
@@ -537,6 +680,7 @@ function peakLabel(team) {
 }
 
 function prepareReveal() {
+  sound.stopAll();
   state.battle = resolveBattle(state.teams[0], state.teams[1]);
   p1Lineup.replaceChildren(...state.battle.sortedOne.map((character, index) => lineupCard(character, index + 1)));
   p2Lineup.replaceChildren(...state.battle.sortedTwo.map((character, index) => lineupCard(character, index + 1)));
@@ -563,33 +707,51 @@ function setVerdict(clash) {
   }
   if (clash.winner === 0) {
     clashVerdict.classList.add("is-null");
-    eyebrow.textContent = "IDENTICAL POWER READINGS";
-    headline.textContent = "STALEMATE — NO POINT AWARDED";
+    eyebrow.textContent = `${formatHealth(clash.leftHealthBefore)} = ${formatHealth(clash.rightHealthBefore)}`;
+    headline.textContent = "EQUAL HEALTH — DOUBLE KNOCKOUT";
     return;
   }
 
   clashVerdict.classList.add("is-win");
   const winner = clash.winner === 1 ? clash.left : clash.right;
-  eyebrow.textContent = `PLAYER ${clash.winner} TAKES THE CLASH`;
-  headline.textContent = `${winner.name.toUpperCase()} OVERPOWERS`;
+  const winnerBefore = clash.winner === 1 ? clash.leftHealthBefore : clash.rightHealthBefore;
+  const loserBefore = clash.winner === 1 ? clash.rightHealthBefore : clash.leftHealthBefore;
+  const winnerAfter = clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter;
+  eyebrow.textContent = `${formatHealth(winnerBefore)} − ${formatHealth(loserBefore)}`;
+  headline.textContent = `${winner.name.toUpperCase()} HOLDS · ${formatHealth(winnerAfter)} HEALTH`;
 }
 
 async function playBattle() {
   if (!state.battle) prepareReveal();
   const token = ++state.battleToken;
   showScreen("battle-screen");
-  battleScoreOne.textContent = "0";
-  battleScoreTwo.textContent = "0";
+  battleScoreOne.textContent = String(state.battle.sortedOne.length);
+  battleScoreTwo.textContent = String(state.battle.sortedTwo.length);
+  clashTotal.textContent = `/ ${String(state.battle.timeline.length).padStart(2, "0")}`;
   skipBattle.disabled = false;
-  let runningOne = 0;
-  let runningTwo = 0;
+  sound.stopAll();
+  sound.battleStart();
 
-  for (let index = 0; index < state.battle.clashes.length; index += 1) {
+  for (let index = 0; index < state.battle.timeline.length; index += 1) {
     if (token !== state.battleToken) return;
-    const clash = state.battle.clashes[index];
+    const clash = state.battle.timeline[index];
+    const leftMaximum = powerToHealth(clash.left.power);
+    const rightMaximum = powerToHealth(clash.right.power);
+    const leftContinuing = clash.leftHealthBefore !== leftMaximum;
+    const rightContinuing = clash.rightHealthBefore !== rightMaximum;
     clashNumber.textContent = `0${index + 1}`;
-    battleCardOne.replaceChildren(fighterCard(clash.left, `P1 · 0${index + 1}`));
-    battleCardTwo.replaceChildren(fighterCard(clash.right, `P2 · 0${index + 1}`));
+    battleScoreOne.textContent = String(state.battle.sortedOne.length - clash.leftIndex);
+    battleScoreTwo.textContent = String(state.battle.sortedTwo.length - clash.rightIndex);
+    battleCardOne.replaceChildren(fighterCard(
+      clash.left,
+      leftContinuing ? "P1 · SURVIVOR" : `P1 · #${clash.leftIndex + 1}`,
+      { current: clash.leftHealthBefore, maximum: leftMaximum },
+    ));
+    battleCardTwo.replaceChildren(fighterCard(
+      clash.right,
+      rightContinuing ? "P2 · SURVIVOR" : `P2 · #${clash.rightIndex + 1}`,
+      { current: clash.rightHealthBefore, maximum: rightMaximum },
+    ));
     clashArena.classList.remove("is-loaded", "is-impact");
     clashVerdict.className = "clash-verdict";
     $("span", clashVerdict).textContent = "POWER READINGS LOCKED";
@@ -600,15 +762,17 @@ async function playBattle() {
     await wait(motionTime(760, 45));
     if (token !== state.battleToken) return;
     clashArena.classList.add("is-impact");
-    sound.impact(clash.left.power, clash.right.power);
+    sound.impact(clash.leftHealthBefore, clash.rightHealthBefore);
 
     await wait(motionTime(690, 45));
     if (token !== state.battleToken) return;
+    updateCardHealth(battleCardOne, clash.leftHealthAfter, clash.leftEliminated);
+    updateCardHealth(battleCardTwo, clash.rightHealthAfter, clash.rightEliminated);
     setVerdict(clash);
-    if (clash.winner === 1) runningOne += 1;
-    if (clash.winner === 2) runningTwo += 1;
-    battleScoreOne.textContent = String(runningOne);
-    battleScoreTwo.textContent = String(runningTwo);
+    battleScoreOne.textContent = String(clash.remainingOne);
+    battleScoreTwo.textContent = String(clash.remainingTwo);
+    if (clash.reason === "boundless-nullification") sound.nullify();
+    else sound.drain(true);
     sound.verdict(clash.winner);
 
     await wait(motionTime(1280, 55));
@@ -623,23 +787,28 @@ function showResult() {
   state.battleToken += 1;
   const battle = state.battle;
   const isDraw = battle.winner === 0;
-  resultKicker.textContent = isDraw ? "FINAL VERDICT · COMPLETE STALEMATE" : "FINAL VERDICT";
+  resultKicker.textContent = isDraw ? "FINAL VERDICT · COMPLETE STALEMATE" : "FINAL VERDICT · FIGHTERS LEFT";
   resultTitle.textContent = isDraw ? "THE BATTLE DRAWS" : `PLAYER ${battle.winner} WINS`;
   resultTitle.style.color = isDraw ? "var(--paper)" : battle.winner === 1 ? "var(--p1)" : "var(--p2)";
-  resultScore.textContent = `${battle.scoreOne} — ${battle.scoreTwo}`;
-  resultCopy.textContent = isDraw
-    ? "Neither squad breaks the balance. The multiverse survives undecided."
-    : `Player ${battle.winner}'s sorted squad claims more head-to-head clashes.`;
+  resultScore.textContent = `${battle.survivorsOne.length} — ${battle.survivorsTwo.length}`;
+  if (isDraw) {
+    resultCopy.textContent = "Every fighter is exhausted or cancelled. No health remains on either side.";
+  } else {
+    const survivors = battle.winner === 1 ? battle.survivorsOne : battle.survivorsTwo;
+    const lead = survivors[0];
+    const reserveCount = Math.max(0, survivors.length - 1);
+    resultCopy.textContent = `${lead.name} finishes with ${formatHealth(lead.health)} health${reserveCount ? ` and ${reserveCount} fighter${reserveCount === 1 ? "" : "s"} still in reserve` : ""}.`;
+  }
 
   resultGrid.replaceChildren();
-  battle.clashes.forEach((clash, index) => {
+  battle.timeline.forEach((clash, index) => {
     const row = document.createElement("div");
     row.className = "result-row";
     const label = clash.reason === "boundless-nullification"
       ? "NULLIFIED"
       : clash.winner === 0
-        ? "DRAW"
-        : `P${clash.winner} WINS`;
+        ? "DOUBLE KO"
+        : `P${clash.winner} · ${formatHealth(clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter)} LEFT`;
     row.innerHTML = `
       <span>${escapeHtml(clash.left.name)}</span>
       <b class="${clash.winner ? "win" : ""}">0${index + 1} · ${label}</b>
@@ -648,7 +817,7 @@ function showResult() {
     resultGrid.append(row);
   });
   showScreen("result-screen");
-  sound.verdict(battle.winner);
+  sound.final(battle.winner);
 }
 
 function handleSpinAction() {
@@ -666,6 +835,7 @@ skipBattle.addEventListener("click", () => {
   if (!state.battle) return;
   state.battleToken += 1;
   skipBattle.disabled = true;
+  sound.stopAll();
   showResult();
 });
 resetGameButton.addEventListener("click", startNewGame);
@@ -679,6 +849,7 @@ soundToggle.addEventListener("click", () => {
     sound.tap();
     showToast("Sound effects on");
   } else {
+    sound.stopAll();
     showToast("Sound effects muted");
   }
 });

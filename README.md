@@ -1,15 +1,26 @@
 # 1v1 Spinner Fighter
 
-A fast, no-install local two-player browser game. Player 1 mashes `A`, Player 2 mashes `L`, and every full charge lands a hit.
+A same-device, pass-and-play 3v3 multiverse draft. Each player privately spins three times, passes the device, and reveals a power-sorted squad for a cinematic head-to-head battle.
 
-## Play
+## How to play
 
-Open the GitHub Pages site, choose **Start Round**, and share the keyboard—or use the on-screen buttons on a touch device.
+1. Player 1 spins a weighted category, then spins a character from that pool. Repeat until three fighters are locked.
+2. Pass the device to Player 2 without revealing Player 1's squad.
+3. Player 2 drafts three fighters the same way, then returns the device to the center.
+4. Both squads are automatically arranged from greatest to least power and clash in three matched rounds.
+5. Two Boundless fighters cancel each other out. Otherwise, the higher fan-made power level wins the clash. The squad with more clash wins takes the battle.
 
-## Run locally
+## Roster
 
-The game is plain HTML, CSS, and JavaScript with no build step. Open `index.html` directly or serve this folder with any static web server.
+- Anime — 100 fighters: 30 Jujutsu Kaisen, 30 Naruto/Boruto, 30 One Piece, and 10 Dragon Ball
+- Marvel — 50 characters in powerful comic forms
+- DC — 50 characters in powerful comic forms
+- Fiction & Toon Menaces — 50 characters from outside the other pools
 
-## Deploy
+The category wheel uses 30% Anime, 30% Marvel, 30% DC, and 10% Menaces odds. Rankings and power levels are fictional, subjective, and designed only for this fan-made game.
 
-GitHub Pages publishes the repository root from the `main` branch. All asset paths are relative, so the site also works from a project subpath.
+## Technical notes
+
+The game is static HTML, CSS, and JavaScript with no build step or online multiplayer. Sound effects are synthesized in the browser. Selected character images are requested from English Wikipedia when available and fall back to styled initials when unavailable.
+
+Run locally with any static server, then open its URL in a modern browser. The production site publishes directly from the `main` branch through GitHub Pages.

@@ -5,110 +5,218 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A fast local two-player spinner battle. Mash your key, build charge, and knock out your rival."
+      content="Draft six legendary fighters, pass the device, and settle a cinematic 3v3 power clash."
     />
-    <meta name="theme-color" content="#090b13" />
-    <title>1v1 Spinner Fighter</title>
+    <meta name="theme-color" content="#08090c" />
+    <meta property="og:title" content="1v1 Spinner Fighter" />
+    <meta property="og:description" content="Spin your three. Pass the device. Clash." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kuhnns.github.io/1v1spinnerfighter/" />
+    <meta property="og:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
+    <meta property="og:image:width" content="1536" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="1v1 Spinner Fighter — Spin your three. Pass the device. Clash." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
+    <title>1v1 Spinner Fighter — Pass &amp; Play</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="script.js" defer></script>
+    <script type="module" src="script.js"></script>
   </head>
   <body>
-    <div class="page-shell">
-      <header class="site-header">
-        <a class="brand" href="./" aria-label="1v1 Spinner Fighter home">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span>1V1 <strong>SPINNER FIGHTER</strong></span>
-        </a>
-        <span class="local-badge">LOCAL DUEL</span>
-      </header>
+    <div class="noise" aria-hidden="true"></div>
 
-      <main>
-        <section class="hero" aria-labelledby="game-title">
-          <p class="eyebrow">Two players. One keyboard. Zero mercy.</p>
-          <h1 id="game-title">SPIN. STRIKE. <span>SURVIVE.</span></h1>
-          <p class="intro">
-            Mash your fighter key to build charge. Every full charge lands a hit.
-            Take the round before the clock runs out.
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="1v1 Spinner Fighter home">
+        <span class="brand-orbit" aria-hidden="true"></span>
+        <span><b>1V1</b> SPINNER FIGHTER</span>
+      </a>
+      <div class="topbar-actions">
+        <span class="device-pill">PASS &amp; PLAY</span>
+        <button class="icon-button" id="sound-toggle" type="button" aria-pressed="true" aria-label="Mute sound">
+          <span aria-hidden="true">SFX</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="screen start-screen is-active" id="start-screen" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="kicker">THE SAME-DEVICE MULTIVERSE DRAFT</p>
+          <h1 id="hero-title">SPIN YOUR THREE.<br /><span>SETTLE THE IMPOSSIBLE.</span></h1>
+          <p class="hero-deck">
+            Two players secretly summon three fighters each, then reveal their squads for a power-ranked 3v3 clash.
           </p>
-        </section>
+          <div class="hero-actions">
+            <button class="primary-button hero-button" id="start-game" type="button">
+              START THE DRAFT <span aria-hidden="true">↗</span>
+            </button>
+            <span class="microcopy">2 players · 1 device · about 3 minutes</span>
+          </div>
+        </div>
 
-        <section class="game" aria-label="Spinner battle arena">
-          <div class="scoreboard" aria-label="Match status">
-            <div class="score score-one">
-              <span>PLAYER 1</span>
-              <strong id="score-one">0</strong>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="hero-card hero-card-left">
+            <span class="card-index">P1</span>
+            <span class="hero-silhouette">∞</span>
+            <div><b>UNKNOWN</b><small>POWER SEALED</small></div>
+          </div>
+          <div class="hero-impact"><span>VS</span></div>
+          <div class="hero-card hero-card-right">
+            <span class="card-index">P2</span>
+            <span class="hero-silhouette">?</span>
+            <div><b>UNKNOWN</b><small>POWER SEALED</small></div>
+          </div>
+        </div>
+
+        <div class="odds-strip" aria-label="Category odds">
+          <div><span class="odds-dot anime"></span><b>ANIME</b><small>30%</small></div>
+          <div><span class="odds-dot marvel"></span><b>MARVEL</b><small>30%</small></div>
+          <div><span class="odds-dot dc"></span><b>DC</b><small>30%</small></div>
+          <div><span class="odds-dot menace"></span><b>FICTION &amp; TOON MENACES</b><small>10%</small></div>
+        </div>
+      </section>
+
+      <section class="screen draft-screen" id="draft-screen" aria-labelledby="draft-title" hidden>
+        <div class="screen-heading draft-heading">
+          <div>
+            <p class="kicker" id="draft-overline">PLAYER 1 · PRIVATE DRAFT</p>
+            <h2 id="draft-title">SUMMON FIGHTER <span id="pick-number">01</span></h2>
+          </div>
+          <div class="pick-pips" id="pick-pips" aria-label="Draft progress">
+            <span class="is-current"></span><span></span><span></span>
+          </div>
+        </div>
+
+        <div class="draft-layout">
+          <aside class="locked-panel">
+            <p class="panel-label">YOUR SQUAD</p>
+            <div class="locked-list" id="locked-list">
+              <div class="empty-pick"><span>01</span><b>EMPTY SLOT</b></div>
+              <div class="empty-pick"><span>02</span><b>EMPTY SLOT</b></div>
+              <div class="empty-pick"><span>03</span><b>EMPTY SLOT</b></div>
             </div>
-            <div class="timer" aria-live="polite">
-              <span>ROUND</span>
-              <strong id="timer">20.0</strong>
+            <p class="privacy-note"><span aria-hidden="true">●</span> Keep this screen private until your squad is locked.</p>
+          </aside>
+
+          <div class="spinner-panel">
+            <div class="stage-label">
+              <span id="stage-step">STEP 1 OF 2</span>
+              <span id="stage-instruction">SPIN FOR A UNIVERSE</span>
             </div>
-            <div class="score score-two">
-              <strong id="score-two">0</strong>
-              <span>PLAYER 2</span>
+
+            <div class="wheel-stage" id="wheel-stage">
+              <div class="wheel-pointer" aria-hidden="true"></div>
+              <div class="category-wheel" id="category-wheel" aria-hidden="true">
+                <span class="wheel-core"><b>SPIN</b><small>TYPE</small></span>
+              </div>
+              <div class="wheel-legend" aria-hidden="true">
+                <span class="legend-anime">ANIME</span>
+                <span class="legend-marvel">MARVEL</span>
+                <span class="legend-dc">DC</span>
+                <span class="legend-menace">MENACE</span>
+              </div>
             </div>
+
+            <div class="reel-stage" id="reel-stage" hidden>
+              <div class="reel-window">
+                <p id="reel-category">ANIME</p>
+                <strong id="reel-name">WHO ANSWERS?</strong>
+                <span id="reel-form">Power signature searching…</span>
+              </div>
+              <div class="reel-lines" aria-hidden="true"></div>
+            </div>
+
+            <div class="reveal-stage" id="reveal-stage" hidden>
+              <div id="draft-card-mount"></div>
+            </div>
+
+            <div class="spin-result" id="spin-result" aria-live="polite">Odds loaded. Your first universe awaits.</div>
+            <button class="primary-button spin-button" id="spin-action" type="button">SPIN CATEGORY</button>
           </div>
 
-          <div class="arena" id="arena">
-            <div class="arena-grid" aria-hidden="true"></div>
+          <aside class="odds-panel">
+            <p class="panel-label">LIVE ODDS</p>
+            <div class="odds-row"><span><i class="odds-dot anime"></i>Anime</span><b>30%</b></div>
+            <div class="odds-row"><span><i class="odds-dot marvel"></i>Marvel</span><b>30%</b></div>
+            <div class="odds-row"><span><i class="odds-dot dc"></i>DC</span><b>30%</b></div>
+            <div class="odds-row"><span><i class="odds-dot menace"></i>Menaces</span><b>10%</b></div>
+            <div class="roster-count"><strong>250</strong><span>FIGHTER FORMS<br />IN THE VAULT</span></div>
+          </aside>
+        </div>
+      </section>
 
-            <article class="fighter fighter-one" id="fighter-one">
-              <div class="health-label">
-                <span>VOLT</span>
-                <span id="health-one-text">100 HP</span>
-              </div>
-              <div class="health-track" role="progressbar" aria-label="Player 1 health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
-                <span id="health-one"></span>
-              </div>
-              <div class="spinner-wrap">
-                <div class="spinner spinner-one" id="spinner-one" aria-hidden="true">
-                  <span class="spinner-core">1</span>
-                </div>
-              </div>
-              <div class="charge-track" aria-hidden="true"><span id="charge-one"></span></div>
-              <button class="fight-button button-one" id="button-one" type="button" disabled>
-                <span>SPIN</span>
-                <kbd>A</kbd>
-              </button>
-            </article>
+      <section class="screen handoff-screen" id="handoff-screen" aria-labelledby="handoff-title" hidden>
+        <div class="handoff-lock" aria-hidden="true"><span></span></div>
+        <p class="kicker" id="handoff-kicker">PLAYER 1 SQUAD LOCKED</p>
+        <h2 id="handoff-title">PASS THE DEVICE.</h2>
+        <p id="handoff-copy">Hand the screen to Player 2. Your three picks are now concealed.</p>
+        <button class="primary-button" id="handoff-action" type="button">I’M PLAYER 2 — CONTINUE</button>
+        <span class="microcopy">No accounts. No networked opponent. Same device only.</span>
+      </section>
 
-            <div class="versus" aria-hidden="true">VS</div>
-
-            <article class="fighter fighter-two" id="fighter-two">
-              <div class="health-label">
-                <span>RIFT</span>
-                <span id="health-two-text">100 HP</span>
-              </div>
-              <div class="health-track" role="progressbar" aria-label="Player 2 health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
-                <span id="health-two"></span>
-              </div>
-              <div class="spinner-wrap">
-                <div class="spinner spinner-two" id="spinner-two" aria-hidden="true">
-                  <span class="spinner-core">2</span>
-                </div>
-              </div>
-              <div class="charge-track" aria-hidden="true"><span id="charge-two"></span></div>
-              <button class="fight-button button-two" id="button-two" type="button" disabled>
-                <span>SPIN</span>
-                <kbd>L</kbd>
-              </button>
-            </article>
-
-            <div class="game-overlay is-visible" id="game-overlay">
-              <p class="overlay-kicker" id="overlay-kicker">READY?</p>
-              <h2 id="overlay-title">FIRST TO THE FINISH</h2>
-              <p id="overlay-copy">Player 1 uses A. Player 2 uses L.</p>
-              <button class="start-button" id="start-button" type="button">START ROUND</button>
-            </div>
+      <section class="screen reveal-screen" id="reveal-screen" aria-labelledby="reveal-title" hidden>
+        <div class="screen-heading reveal-heading">
+          <div>
+            <p class="kicker">SQUADS REVEALED · AUTO-SORTED BY POWER</p>
+            <h2 id="reveal-title">THE MATCHUP</h2>
           </div>
+          <div class="match-format"><b>3</b><span>HEAD-TO-HEAD<br />CLASHES</span></div>
+        </div>
+        <div class="lineup-versus">
+          <div class="lineup-side player-one-side">
+            <div class="lineup-title"><span>PLAYER 1</span><b id="p1-total">—</b></div>
+            <div class="lineup-list" id="p1-lineup"></div>
+          </div>
+          <div class="lineup-divider"><span>VS</span></div>
+          <div class="lineup-side player-two-side">
+            <div class="lineup-title"><span>PLAYER 2</span><b id="p2-total">—</b></div>
+            <div class="lineup-list" id="p2-lineup"></div>
+          </div>
+        </div>
+        <div class="center-action">
+          <p>Boundless fighters mutually nullify. Every other matchup goes to the greater power level.</p>
+          <button class="primary-button" id="begin-battle" type="button">BEGIN 3V3 CLASH</button>
+        </div>
+      </section>
 
-          <p class="status" id="status" aria-live="assertive">Press Start Round when both fighters are ready.</p>
-        </section>
-      </main>
+      <section class="screen battle-screen" id="battle-screen" aria-labelledby="battle-title" hidden>
+        <div class="battle-topline">
+          <div><span>PLAYER 1</span><b id="battle-score-one">0</b></div>
+          <p id="battle-title">CLASH <b id="clash-number">01</b> / 03</p>
+          <div><b id="battle-score-two">0</b><span>PLAYER 2</span></div>
+        </div>
+        <div class="clash-arena" id="clash-arena">
+          <div class="clash-energy energy-one" aria-hidden="true"></div>
+          <div class="battle-card-slot left" id="battle-card-one"></div>
+          <div class="clash-mark" aria-hidden="true"><b>VS</b><span></span></div>
+          <div class="battle-card-slot right" id="battle-card-two"></div>
+          <div class="clash-energy energy-two" aria-hidden="true"></div>
+        </div>
+        <div class="clash-verdict" id="clash-verdict" aria-live="assertive">
+          <span>POWER READINGS LOCKED</span>
+          <strong>PREPARE FOR IMPACT</strong>
+        </div>
+        <button class="text-button" id="skip-battle" type="button">SKIP ANIMATION</button>
+      </section>
 
-      <footer>
-        <span>Built for quick couch battles.</span>
-        <span>Keyboard or touch</span>
-      </footer>
-    </div>
+      <section class="screen result-screen" id="result-screen" aria-labelledby="result-title" hidden>
+        <p class="kicker" id="result-kicker">FINAL VERDICT</p>
+        <h2 id="result-title">PLAYER 1 WINS</h2>
+        <p class="result-score" id="result-score">2 — 1</p>
+        <p class="result-copy" id="result-copy">The stronger squad takes the multiverse.</p>
+        <div class="result-grid" id="result-grid"></div>
+        <div class="result-actions">
+          <button class="primary-button" id="reset-game" type="button">RESET &amp; SPIN AGAIN</button>
+          <button class="secondary-button" id="review-lineups" type="button">REVIEW LINEUPS</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>UNOFFICIAL FAN-MADE GAME · POWER RATINGS ARE FOR PLAY, NOT CANON</span>
+      <span>Character imagery is requested from Wikipedia when available. Rights belong to their respective owners.</span>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>

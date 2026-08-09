@@ -1,21 +1,22 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-8";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-8";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-8";
-import { getCharacterStats } from "./data/stats.js?v=20260809-8";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-8";
+import { animeCharacters } from "./data/anime.js?v=20260809-9";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-9";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-9";
+import { getCharacterStats } from "./data/stats.js?v=20260809-9";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-9";
 import {
   CATEGORY_WEIGHTS,
+  chooseStrengthWeightedCharacter,
   chooseWeighted,
   draftAutomatedTeam,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-8";
+} from "./game-logic.js?v=20260809-9";
 import {
   formatLobbyCodeInput,
   OnlineLobbyNetwork,
   normalizeLobbyCode,
   sanitizePlayerName,
-} from "./online-network.js?v=20260809-8";
+} from "./online-network.js?v=20260809-9";
 import {
   BATTLE_PACE,
   BOUNDLESS_BEAT_MS,
@@ -27,13 +28,13 @@ import {
   BOUNDLESS_TRACK_PREP_TIMEOUT_MS,
   BOUNDLESS_TRACK_START_SECONDS,
   eventDialogue,
-} from "./battle-presentation.js?v=20260809-8";
+} from "./battle-presentation.js?v=20260809-9";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 const REDUCED_MOTION_AUDIO_SCALE = 0.035;
-const BOUNDLESS_TRACK_URL = new URL("./assets/the-long-faces-jane.mp3?v=20260809-8", import.meta.url).href;
+const BOUNDLESS_TRACK_URL = new URL("./assets/the-long-faces-jane.mp3?v=20260809-9", import.meta.url).href;
 
 function combatRoster(roster, categoryId, categoryLabel) {
   return roster.map((fighter) => {
@@ -1404,7 +1405,7 @@ function resetSpinStage() {
   draftCardMount.replaceChildren();
   stageStep.textContent = "STEP 1 OF 2";
   stageInstruction.textContent = "SPIN FOR A UNIVERSE";
-  spinResult.textContent = "Weighted odds are live. The multiverse decides.";
+  spinResult.textContent = "Each higher Strength tier loses one ticket: Human 12 → Boundless 1.";
   spinAction.textContent = "SPIN CATEGORY";
   spinAction.disabled = false;
   if (!spinAction.closest(".screen")?.hidden) focusWithoutScroll(spinAction);
@@ -1437,7 +1438,7 @@ async function spinCategory() {
   focusWithoutScroll(spinAction);
   stageStep.textContent = "STEP 2 OF 2";
   stageInstruction.textContent = `${category.label} LOCKED`;
-  spinResult.textContent = `${category.label} selected · ${category.roster.length} elite forms in the pool.`;
+  spinResult.textContent = `${category.label} selected · stronger fighters have fewer draw tickets.`;
   if (category.id === "games") sound.arcade();
   else sound.reveal(category.id === "menace" ? 10 : 7);
 }
@@ -1453,7 +1454,7 @@ async function spinCharacter() {
 
   const category = state.selectedCategory;
   const pool = category.roster.filter((character) => !state.used.has(character.id));
-  const rawPick = pool[randomIndex(pool.length, randomUnit())];
+  const rawPick = chooseStrengthWeightedCharacter(pool, randomUnit());
   state.selectedCharacter = { ...rawPick, categoryId: category.id, categoryLabel: category.label };
   reelCategory.textContent = category.label;
   reelName.textContent = "SEARCHING…";
@@ -1715,18 +1716,9 @@ function removeSandboxFighter(side, index) {
   setSandboxStatus(`${removed.name} removed from Team ${side + 1}.`, "building");
 }
 
-function shuffledFighters(excludedIds = new Set()) {
-  const pool = allFighters.filter(({ id }) => !excludedIds.has(id)).map((fighter) => ({ ...fighter }));
-  for (let index = pool.length - 1; index > 0; index -= 1) {
-    const swapIndex = randomIndex(index + 1, randomUnit());
-    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
-  }
-  return pool;
-}
-
 function randomizeSandboxTeam(side) {
   const otherIds = new Set(state.teams[1 - side].map(({ id }) => id));
-  state.teams[side] = shuffledFighters(otherIds).slice(0, 3);
+  state.teams[side] = draftAutomatedTeam(categories, otherIds, randomUnit);
   state.sandboxActiveSide = side;
   sound.botDraft();
   renderSandboxRosterState();
@@ -1741,8 +1733,10 @@ function randomizeSandboxTeam(side) {
 }
 
 function randomizeSandboxMatch() {
-  const matchup = shuffledFighters().slice(0, 6);
-  state.teams = [matchup.slice(0, 3), matchup.slice(3, 6)];
+  const teamOne = draftAutomatedTeam(categories, new Set(), randomUnit);
+  const teamOneIds = new Set(teamOne.map(({ id }) => id));
+  const teamTwo = draftAutomatedTeam(categories, teamOneIds, randomUnit);
+  state.teams = [teamOne, teamTwo];
   sound.botDraft();
   setSandboxSide(0);
   setSandboxStatus("Six unique fighters randomized. Both teams are ready.", "ready");

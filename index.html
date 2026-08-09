@@ -19,8 +19,9 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
     <title>1v1 Spinner Fighter — Spin, Sandbox &amp; Battle</title>
-    <link rel="stylesheet" href="styles.css?v=20260809-8" />
-    <script type="module" src="script.js?v=20260809-8"></script>
+    <link rel="icon" href="favicon.svg?v=20260809-9" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css?v=20260809-9" />
+    <script type="module" src="script.js?v=20260809-9"></script>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -173,7 +174,7 @@
         </div>
 
         <p class="sandbox-intro">
-          Choose the squad you are editing, then select three unique fighters from the vault. Every existing name, form, and image stays intact.
+          Choose any three fighters freely, or use Random Team for the same strength-weighted odds as a normal spin. Every existing name, form, and image stays intact.
         </p>
 
         <div class="sandbox-team-board" role="group" aria-label="Sandbox squads">
@@ -340,7 +341,7 @@
               <div id="draft-card-mount"></div>
             </div>
 
-            <div class="spin-result" id="spin-result" aria-live="polite">Odds loaded. Your first universe awaits.</div>
+            <div class="spin-result" id="spin-result" aria-live="polite">Each higher Strength tier loses one ticket: Human 12 → Boundless 1.</div>
             <button class="primary-button spin-button" id="spin-action" type="button">SPIN CATEGORY</button>
           </div>
 
@@ -351,6 +352,7 @@
             <div class="odds-row"><span><i class="odds-dot dc"></i>DC</span><b>25%</b></div>
             <div class="odds-row"><span><i class="odds-dot games"></i>Video games</span><b>15%</b></div>
             <div class="odds-row"><span><i class="odds-dot menace"></i>Menaces</span><b>10%</b></div>
+            <p class="odds-rarity-note"><strong>STRENGTH RARITY</strong> Each higher Strength tier gets one fewer draw ticket. Boundless stays possible, but rare.</p>
             <div class="roster-count"><strong>300</strong><span>FIGHTER FORMS<br />IN THE VAULT</span></div>
           </aside>
         </div>

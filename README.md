@@ -11,7 +11,7 @@ A 3v3 multiverse draft with Pass & Play, a solo bot opponent, live peer-to-peer 
 
 ## How to play
 
-1. Player 1 spins a weighted category, then spins a character from that pool. Repeat until three fighters are locked.
+1. Player 1 spins a weighted category, then spins a strength-weighted character from that pool. Repeat until three fighters are locked.
 2. Pass the device to Player 2 without revealing Player 1's squad.
 3. Player 2 drafts three fighters the same way, then returns the device to the center.
 4. Fighters enter in the order they were drafted. Speed decides who attacks first; a gap of four tiers triggers a Speed Blitz and six tiers triggers an Extreme Blitz.
@@ -34,7 +34,7 @@ A 3v3 multiverse draft with Pass & Play, a solo bot opponent, live peer-to-peer 
 - Video Game Legends — 50 characters in their strongest game forms
 - Fiction & Toon Menaces — 50 characters from outside the other pools
 
-The category wheel uses 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, and 10% Menaces odds. Strength, Durability, and Speed tiers are fictional, subjective, and designed only for this fan-made game.
+The category wheel remains 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, and 10% Menaces. Inside the selected category, each fighter receives `12 - Strength tier` draw tickets: Human gets 12, Planetary 5, Outerversal 2, and Boundless 1. Equal-Strength fighters have equal odds, locked fighters are removed before recalculating, and the bot plus Sandbox random buttons use the same rule. Strength, Durability, and Speed tiers are fictional, subjective, and designed only for this fan-made game.
 
 ## Technical notes
 

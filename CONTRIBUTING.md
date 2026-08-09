@@ -5,7 +5,7 @@ Every change to 1v1 Spinner Fighter must be tested before it is published, inclu
 ## Required checks
 
 1. Run JavaScript syntax checks for `script.js`, `game-logic.js`, and every changed data module.
-2. Run `node tests/verify.mjs`, `node tests/verify-stats.mjs`, `node tests/verify-roster-combat.mjs`, `node tests/verify-presentation.mjs`, `node tests/verify-online.mjs`, and `node tests/verify-static.mjs`.
+2. Run `node tests/verify.mjs`, `node tests/verify-stats.mjs`, `node tests/verify-probabilities.mjs`, `node tests/verify-roster-combat.mjs`, `node tests/verify-presentation.mjs`, `node tests/verify-online.mjs`, and `node tests/verify-static.mjs`.
 3. Run `git diff --check`.
 4. Test the complete same-device flow in a browser: six picks, handoffs, lineup reveal, every animated clash, final result, sound toggle, and reset.
 5. Check at desktop and phone widths, confirm the revealed card has a visible image or initials fallback, and review the console for errors.

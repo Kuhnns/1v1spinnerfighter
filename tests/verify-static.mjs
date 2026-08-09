@@ -26,6 +26,7 @@ const requiredFiles = [
   "data/stats.js",
   "data/video-games.js",
   "assets/the-long-faces-jane.mp3",
+  "favicon.svg",
   "og.png",
 ];
 await Promise.all(requiredFiles.map((file) => access(resolve(root, file))));
@@ -50,6 +51,7 @@ for (const screen of [
 }
 
 assert.match(html, /<script type="module" src="script\.js\?v=[^"]+"><\/script>/);
+assert.match(html, /<link rel="icon" href="favicon\.svg\?v=20260809-9" type="image\/svg\+xml" \/>/);
 assert.match(html, /https:\/\/kuhnns\.github\.io\/1v1spinnerfighter\/og\.png/);
 assert.doesNotMatch(html, /(?:src|href)="\/(?!\/)/, "Project assets must use subpath-safe URLs");
 assert.match(html, /VIDEO GAME LEGENDS<\/b><small>15%<\/small>/);
@@ -73,15 +75,17 @@ for (const removedTrackId of ["clash-track-input", "clash-track-load", "clash-tr
 assert.match(html, /class="clash-track-credit"/);
 assert.match(html, /JANE! · THE LONG FACES/);
 assert.match(html, /AUTOMATIC CUE AT 0:35 · CINEMATIC FADE IN \/ OUT/);
+assert.match(html, /Each higher Strength tier gets one fewer draw ticket/);
+assert.match(html, /Each higher Strength tier loses one ticket: Human 12 → Boundless 1\./);
 assert.doesNotMatch(html, /\bTAP TAP\b|class="comic-sfx"/i, "The retired tap stamps must not be visible in the DOM");
 assert.match(html, /id="category-wheel"[\s\S]*class="wheel-legend"[\s\S]*<\/div>\s*<\/div>\s*<div class="reel-stage"/);
 assert.match(script, /import \{ videoGameCharacters \} from "\.\/data\/video-games\.js\?v=[^"]+"/);
-assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-8"/);
-assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-8"/);
-assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-8"/);
+assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-9"/);
+assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-9"/);
+assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-9"/);
 const outerScriptVersion = html.match(/src="script\.js\?v=([^"]+)"/)?.[1];
 const outerStyleVersion = html.match(/href="styles\.css\?v=([^"]+)"/)?.[1];
-assert.equal(outerScriptVersion, "20260809-8");
+assert.equal(outerScriptVersion, "20260809-9");
 assert.equal(outerStyleVersion, outerScriptVersion, "Outer CSS and JS cache keys must match");
 const importedVersions = [...script.matchAll(/from "\.\/[^"]+\?v=([^"]+)"/g)].map((match) => match[1]);
 assert.ok(importedVersions.length >= 8);
@@ -91,6 +95,10 @@ assert.match(script, /startBotButton\.addEventListener\("click", \(\) => startNe
 assert.match(script, /startSandboxButton\.addEventListener\("click", openSandbox\)/);
 assert.match(script, /sandboxStart\.addEventListener\("click", startSandboxBattle\)/);
 assert.match(script, /sandboxRandomAll\.addEventListener\("click", randomizeSandboxMatch\)/);
+assert.match(script, /const rawPick = chooseStrengthWeightedCharacter\(pool, randomUnit\(\)\)/);
+assert.match(script, /state\.teams\[side\] = draftAutomatedTeam\(categories, otherIds, randomUnit\)/);
+assert.match(script, /const teamOne = draftAutomatedTeam[\s\S]+const teamTwo = draftAutomatedTeam/);
+assert.doesNotMatch(script, /function shuffledFighters\(/);
 assert.match(script, /sandboxFilter\.addEventListener\("change", filterSandboxRoster\)/);
 assert.match(script, /sandboxSearch\.addEventListener\("input", filterSandboxRoster\)/);
 assert.match(script, /state\.mode === "sandbox"\) openSandbox\(\)/, "Sandbox reset must return to its matchup builder");
@@ -137,7 +145,7 @@ assert.equal(
   "55be9de9c3add7566db433a7a82bc69aed8aeac1832fe4bbd7a93ba57c1f2135",
   "The bundled soundtrack must remain the exact supplied upload",
 );
-assert.match(script, /new URL\("\.\/assets\/the-long-faces-jane\.mp3\?v=20260809-8", import\.meta\.url\)/);
+assert.match(script, /new URL\("\.\/assets\/the-long-faces-jane\.mp3\?v=20260809-9", import\.meta\.url\)/);
 assert.match(script, /const startFrame = Math\.floor\(BOUNDLESS_TRACK_START_SECONDS \* decoded\.sampleRate\)/, "The bundled song must be clipped from 0:35");
 assert.match(script, /const clipFrames = Math\.floor\(BOUNDLESS_TRACK_CLIP_SECONDS \* decoded\.sampleRate\)/);
 assert.match(script, /this\.context\.createBuffer\(decoded\.numberOfChannels, clipFrames, decoded\.sampleRate\)/, "Only the cinematic window should remain decoded in memory");

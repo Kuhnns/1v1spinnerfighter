@@ -8,9 +8,12 @@ import {
   DAMAGE_PERCENTAGES,
   MAX_HEALTH_PERCENT,
   SPEED_TIERS,
+  STRENGTH_DRAW_TICKETS,
   STRENGTH_DURABILITY_TIERS,
   calculateDamagePercent,
+  characterDrawWeight,
   classifyPowerMismatch,
+  chooseStrengthWeightedCharacter,
   chooseWeighted,
   draftAutomatedTeam,
   formatHealth,
@@ -71,14 +74,61 @@ assert.equal(chooseWeighted(weighted, 0.899999).id, "games");
 assert.equal(chooseWeighted(weighted, 0.9).id, "menace");
 assert.equal(chooseWeighted(weighted, 0.95).id, "menace");
 
-const draftFighter = (id) => Object.freeze({
+const draftFighter = (id, strength = 4) => Object.freeze({
   id,
   name: id.toUpperCase(),
   form: "Test Form",
   source: "Test Source",
   wiki: "Test Fighter",
   power: "1",
+  strength,
 });
+
+assert.deepEqual(STRENGTH_DRAW_TICKETS, {
+  Human: 12,
+  Building: 11,
+  "City Block": 10,
+  Town: 9,
+  City: 8,
+  Country: 7,
+  Continent: 6,
+  Planetary: 5,
+  Universal: 4,
+  Multiversal: 3,
+  Outerversal: 2,
+  Boundless: 1,
+});
+const strengthTierEntries = Object.entries(STRENGTH_DURABILITY_TIERS);
+for (let index = 0; index < strengthTierEntries.length; index += 1) {
+  const [label, tier] = strengthTierEntries[index];
+  assert.equal(characterDrawWeight(draftFighter(`tier-${tier}`, tier)), STRENGTH_DRAW_TICKETS[label]);
+  if (index > 0) {
+    const previousTier = strengthTierEntries[index - 1][1];
+    assert.ok(
+      characterDrawWeight(draftFighter(`tier-${previousTier}`, previousTier)) > characterDrawWeight(draftFighter(`tier-${tier}`, tier)),
+      `${label} must have fewer draw tickets than the tier below it`,
+    );
+  }
+}
+assert.equal(characterDrawWeight(draftFighter("equal-a", 8)), characterDrawWeight(draftFighter("equal-b", 8)));
+
+const strengthWeightedPool = [
+  draftFighter("boundless", 11),
+  draftFighter("outerversal", 10),
+  draftFighter("multiversal", 9),
+];
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, 0).id, "boundless");
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, (1 / 6) - Number.EPSILON).id, "boundless");
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, 1 / 6).id, "outerversal");
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, 0.5 - Number.EPSILON).id, "outerversal");
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, 0.5).id, "multiversal");
+assert.equal(chooseStrengthWeightedCharacter(strengthWeightedPool, 0.999999).id, "multiversal");
+assert.throws(() => chooseStrengthWeightedCharacter([], 0), /at least one fighter/);
+assert.throws(() => chooseStrengthWeightedCharacter([draftFighter("invalid-low", -1)], 0), /Strength tier from 0 to 11/);
+assert.throws(() => chooseStrengthWeightedCharacter([draftFighter("invalid-high", 12)], 0), /Strength tier from 0 to 11/);
+assert.throws(() => chooseStrengthWeightedCharacter([draftFighter("invalid-fraction", 7.5)], 0), /Strength tier from 0 to 11/);
+assert.throws(() => chooseStrengthWeightedCharacter([{ id: "missing-strength" }], 0), /Strength tier from 0 to 11/);
+assert.throws(() => chooseStrengthWeightedCharacter([draftFighter("valid")], NaN), /finite number/);
 const alphaOne = draftFighter("alpha-1");
 const alphaTwo = draftFighter("alpha-2");
 const alphaThree = draftFighter("alpha-3");
@@ -113,6 +163,46 @@ assert.deepEqual([...inputUsed], inputUsedSnapshot, "Automated drafting must not
 assert.ok(automatedTeam.every(({ id }) => !inputUsed.has(id)));
 assert.notEqual(automatedTeam[0], alphaTwo, "Decorating a fighter must return a new record");
 assert.equal("categoryId" in alphaTwo, false, "Roster fighters must not be decorated in place");
+
+const categoryIsolationRandom = sequenceRandom([0.499999, 0, 0.5, 0, 0.5, 0.999]);
+const categoryIsolationTeam = draftAutomatedTeam([
+  {
+    id: "weak",
+    label: "WEAK",
+    weight: 0.5,
+    roster: [draftFighter("weak-1", 1), draftFighter("weak-2", 1), draftFighter("weak-3", 1)],
+  },
+  {
+    id: "strong",
+    label: "STRONG",
+    weight: 0.5,
+    roster: [draftFighter("strong-1", 11), draftFighter("strong-2", 11), draftFighter("strong-3", 11)],
+  },
+], new Set(), categoryIsolationRandom);
+assert.deepEqual(
+  categoryIsolationTeam.map(({ categoryId }) => categoryId),
+  ["weak", "strong", "strong"],
+  "Within-category Strength tickets must not alter category probabilities",
+);
+assert.equal(categoryIsolationRandom.calls(), 6);
+
+const mixedStrengthRandom = sequenceRandom([0, 0.2, 0, 0, 0, 0]);
+const mixedStrengthTeam = draftAutomatedTeam([{
+  id: "mixed",
+  label: "MIXED",
+  weight: 1,
+  roster: [
+    draftFighter("mixed-boundless", 11),
+    draftFighter("mixed-outerversal", 10),
+    draftFighter("mixed-building", 1),
+  ],
+}], new Set(), mixedStrengthRandom);
+assert.deepEqual(
+  mixedStrengthTeam.map(({ id }) => id),
+  ["mixed-outerversal", "mixed-boundless", "mixed-building"],
+  "Automated fighter picks must use Strength tickets instead of uniform indexes",
+);
+assert.equal(mixedStrengthRandom.calls(), 6);
 
 const exhaustedCategoryRandom = sequenceRandom([0, 0, 0, 0.999, 0.5, 0]);
 const exhaustedCategoryTeam = draftAutomatedTeam([

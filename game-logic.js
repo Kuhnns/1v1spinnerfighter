@@ -25,6 +25,24 @@ export const STRENGTH_DURABILITY_TIERS = Object.freeze({
   Boundless: 11,
 });
 
+// Each higher Strength tier receives one fewer draw ticket. This keeps every
+// fighter possible while making stronger forms progressively rarer inside the
+// category that the wheel already selected.
+export const STRENGTH_DRAW_TICKETS = Object.freeze({
+  Human: 12,
+  Building: 11,
+  "City Block": 10,
+  Town: 9,
+  City: 8,
+  Country: 7,
+  Continent: 6,
+  Planetary: 5,
+  Universal: 4,
+  Multiversal: 3,
+  Outerversal: 2,
+  Boundless: 1,
+});
+
 export const SPEED_TIERS = Object.freeze({
   Human: 1,
   "Peak Human": 2,
@@ -679,6 +697,36 @@ export function resolveBattle(teamOne, teamTwo, random = Math.random) {
 
 const AUTOMATED_TEAM_SIZE = 3;
 
+export function characterDrawWeight(fighter) {
+  const minimumTier = STRENGTH_DURABILITY_TIERS.Human;
+  const maximumTier = STRENGTH_DURABILITY_TIERS.Boundless;
+  const strength = fighter?.strength;
+  if (!Number.isInteger(strength) || strength < minimumTier || strength > maximumTier) {
+    throw new TypeError(`Fighter ${fighter?.id || "(unknown)"} must have an integer Strength tier from ${minimumTier} to ${maximumTier}.`);
+  }
+  return maximumTier + 1 - strength;
+}
+
+/** Select one fighter after normalizing Strength-based tickets within the supplied pool. */
+export function chooseStrengthWeightedCharacter(roster, unit = Math.random()) {
+  if (!Array.isArray(roster) || roster.length === 0) {
+    throw new RangeError("Character draw requires at least one fighter.");
+  }
+  if (typeof unit !== "number" || !Number.isFinite(unit)) {
+    throw new TypeError("Character draw unit must be a finite number.");
+  }
+
+  const weights = roster.map(characterDrawWeight);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const target = Math.min(Math.max(unit, 0), 0.999999999999) * totalWeight;
+  let cursor = 0;
+  for (let index = 0; index < roster.length; index += 1) {
+    cursor += weights[index];
+    if (target < cursor) return roster[index];
+  }
+  return roster[roster.length - 1];
+}
+
 function validateDraftCategories(categories) {
   if (!Array.isArray(categories) || categories.length === 0) {
     throw new TypeError("Categories must be a non-empty array.");
@@ -708,6 +756,7 @@ function validateDraftCategories(categories) {
       if (typeof fighter.id !== "string" || !fighter.id.trim()) {
         throw new TypeError(`Fighter at ${category.id}[${fighterIndex}] must have a non-empty id.`);
       }
+      characterDrawWeight(fighter);
     });
   });
 }
@@ -737,7 +786,7 @@ function unusedUniqueRoster(roster, usedIds) {
 }
 
 /**
- * Draw exactly three weighted fighters for an automated opponent.
+ * Draw exactly three fighters using category odds first and Strength tickets second.
  *
  * Exhausted categories are removed and the remaining positive weights are
  * renormalized for each pick. The injected RNG is called exactly twice per pick:
@@ -785,7 +834,7 @@ export function draftAutomatedTeam(categories, usedIds = new Set(), random = Mat
       }
     }
 
-    const fighter = selected.roster[randomIndex(selected.roster.length, nextDraftUnit(random))];
+    const fighter = chooseStrengthWeightedCharacter(selected.roster, nextDraftUnit(random));
     locallyUsed.add(fighter.id);
     team.push({
       ...fighter,

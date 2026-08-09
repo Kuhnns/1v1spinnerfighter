@@ -13,6 +13,7 @@ import {
   getCharacterStats,
 } from "../data/stats.js";
 import { videoGameCharacters } from "../data/video-games.js";
+import { characterDrawWeight } from "../game-logic.js";
 
 const roster = [
   ...marvelCharacters,
@@ -64,6 +65,13 @@ assert.deepEqual(getCharacterStats("game-kratos"), {
   durabilityLabel: "Outerversal",
   speedLabel: "Massively FTL",
 });
+const videoGameDrawWeight = videoGameCharacters.reduce(
+  (total, fighter) => total + characterDrawWeight(getCharacterStats(fighter.id)),
+  0,
+);
+assert.equal(characterDrawWeight(getCharacterStats("game-kratos")), 1);
+assert.equal(videoGameDrawWeight, 216);
+assert.equal(characterDrawWeight(getCharacterStats("game-kratos")) / videoGameDrawWeight, 1 / 216);
 assert.equal(getCharacterStats("marvel-silver-surfer").speedLabel, "Massively FTL");
 assert.equal(getCharacterStats("dc-brainiac").durabilityLabel, "Planetary");
 assert.equal(getCharacterStats("the-doctor").durability, 0);

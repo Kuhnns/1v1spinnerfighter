@@ -56,6 +56,14 @@ assert.deepEqual(getCharacterStats("one-piece-trafalgar-law"), {
   speedLabel: "Faster than Light",
 });
 assert.equal(getCharacterStats("game-noctis-lucis-caelum").strengthLabel, "Planetary");
+assert.deepEqual(getCharacterStats("game-kratos"), {
+  strength: 11,
+  durability: 10,
+  speed: 12,
+  strengthLabel: "Boundless",
+  durabilityLabel: "Outerversal",
+  speedLabel: "Massively FTL",
+});
 assert.equal(getCharacterStats("marvel-silver-surfer").speedLabel, "Massively FTL");
 assert.equal(getCharacterStats("dc-brainiac").durabilityLabel, "Planetary");
 assert.equal(getCharacterStats("the-doctor").durability, 0);

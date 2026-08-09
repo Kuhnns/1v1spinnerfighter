@@ -76,12 +76,12 @@ assert.match(html, /AUTOMATIC CUE AT 0:35 · CINEMATIC FADE IN \/ OUT/);
 assert.doesNotMatch(html, /\bTAP TAP\b|class="comic-sfx"/i, "The retired tap stamps must not be visible in the DOM");
 assert.match(html, /id="category-wheel"[\s\S]*class="wheel-legend"[\s\S]*<\/div>\s*<\/div>\s*<div class="reel-stage"/);
 assert.match(script, /import \{ videoGameCharacters \} from "\.\/data\/video-games\.js\?v=[^"]+"/);
-assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-7"/);
-assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-7"/);
-assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-7"/);
+assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-8"/);
+assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-8"/);
+assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-8"/);
 const outerScriptVersion = html.match(/src="script\.js\?v=([^"]+)"/)?.[1];
 const outerStyleVersion = html.match(/href="styles\.css\?v=([^"]+)"/)?.[1];
-assert.equal(outerScriptVersion, "20260809-7");
+assert.equal(outerScriptVersion, "20260809-8");
 assert.equal(outerStyleVersion, outerScriptVersion, "Outer CSS and JS cache keys must match");
 const importedVersions = [...script.matchAll(/from "\.\/[^"]+\?v=([^"]+)"/g)].map((match) => match[1]);
 assert.ok(importedVersions.length >= 8);
@@ -137,7 +137,7 @@ assert.equal(
   "55be9de9c3add7566db433a7a82bc69aed8aeac1832fe4bbd7a93ba57c1f2135",
   "The bundled soundtrack must remain the exact supplied upload",
 );
-assert.match(script, /new URL\("\.\/assets\/the-long-faces-jane\.mp3\?v=20260809-7", import\.meta\.url\)/);
+assert.match(script, /new URL\("\.\/assets\/the-long-faces-jane\.mp3\?v=20260809-8", import\.meta\.url\)/);
 assert.match(script, /const startFrame = Math\.floor\(BOUNDLESS_TRACK_START_SECONDS \* decoded\.sampleRate\)/, "The bundled song must be clipped from 0:35");
 assert.match(script, /const clipFrames = Math\.floor\(BOUNDLESS_TRACK_CLIP_SECONDS \* decoded\.sampleRate\)/);
 assert.match(script, /this\.context\.createBuffer\(decoded\.numberOfChannels, clipFrames, decoded\.sampleRate\)/, "Only the cinematic window should remain decoded in memory");

@@ -1,21 +1,21 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-7";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-7";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-7";
-import { getCharacterStats } from "./data/stats.js?v=20260809-7";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-7";
+import { animeCharacters } from "./data/anime.js?v=20260809-8";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-8";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-8";
+import { getCharacterStats } from "./data/stats.js?v=20260809-8";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-8";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
   draftAutomatedTeam,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-7";
+} from "./game-logic.js?v=20260809-8";
 import {
   formatLobbyCodeInput,
   OnlineLobbyNetwork,
   normalizeLobbyCode,
   sanitizePlayerName,
-} from "./online-network.js?v=20260809-7";
+} from "./online-network.js?v=20260809-8";
 import {
   BATTLE_PACE,
   BOUNDLESS_BEAT_MS,
@@ -27,13 +27,13 @@ import {
   BOUNDLESS_TRACK_PREP_TIMEOUT_MS,
   BOUNDLESS_TRACK_START_SECONDS,
   eventDialogue,
-} from "./battle-presentation.js?v=20260809-7";
+} from "./battle-presentation.js?v=20260809-8";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 const REDUCED_MOTION_AUDIO_SCALE = 0.035;
-const BOUNDLESS_TRACK_URL = new URL("./assets/the-long-faces-jane.mp3?v=20260809-7", import.meta.url).href;
+const BOUNDLESS_TRACK_URL = new URL("./assets/the-long-faces-jane.mp3?v=20260809-8", import.meta.url).href;
 
 function combatRoster(roster, categoryId, categoryLabel) {
   return roster.map((fighter) => {

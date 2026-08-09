@@ -300,7 +300,7 @@ export const characterStatsById = Object.freeze({
   "game-pit": freezeStats("Planetary", "Planetary", "Faster than Light"),
   "game-shulk": freezeStats("Universal", "Universal", "Massively FTL"),
   "game-bayonetta": freezeStats("Universal", "Universal", "Massively FTL"),
-  "game-kratos": freezeStats("Universal", "Universal", "Massively FTL"),
+  "game-kratos": freezeStats("Boundless", "Outerversal", "Massively FTL"),
   "game-mewtwo": freezeStats("Planetary", "Planetary", "Faster than Light"),
   "game-giratina": freezeStats("Universal", "Universal", "Massively FTL"),
   "game-dialga": freezeStats("Universal", "Universal", "Omnipresent"),

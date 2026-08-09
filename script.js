@@ -1,26 +1,35 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-5";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-5";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-5";
-import { getCharacterStats } from "./data/stats.js?v=20260809-5";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-5";
+import { animeCharacters } from "./data/anime.js?v=20260809-6";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-6";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-6";
+import { getCharacterStats } from "./data/stats.js?v=20260809-6";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-6";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
   draftAutomatedTeam,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-5";
+} from "./game-logic.js?v=20260809-6";
 import {
   formatLobbyCodeInput,
   OnlineLobbyNetwork,
   normalizeLobbyCode,
   sanitizePlayerName,
-} from "./online-network.js?v=20260809-5";
+} from "./online-network.js?v=20260809-6";
+import {
+  BATTLE_PACE,
+  BOUNDLESS_BEAT_MS,
+  BOUNDLESS_CUES,
+  CUSTOM_TRACK_MIN_DURATION_SECONDS,
+  CUSTOM_TRACK_START_SECONDS,
+  eventDialogue,
+} from "./battle-presentation.js?v=20260809-6";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 const REDUCED_MOTION_AUDIO_SCALE = 0.035;
+const MAX_LOCAL_TRACK_BYTES = 60 * 1024 * 1024;
 
 function combatRoster(roster, categoryId, categoryLabel) {
   return roster.map((fighter) => {
@@ -112,6 +121,10 @@ const p2Total = $("#p2-total");
 const sideOneLabel = $("#side-one-label");
 const sideTwoLabel = $("#side-two-label");
 const beginBattle = $("#begin-battle");
+const clashTrackInput = $("#clash-track-input");
+const clashTrackLoad = $("#clash-track-load");
+const clashTrackClear = $("#clash-track-clear");
+const clashTrackStatus = $("#clash-track-status");
 const battleScoreOne = $("#battle-score-one");
 const battleScoreTwo = $("#battle-score-two");
 const battleSideOneLabel = $("#battle-side-one-label");
@@ -120,6 +133,11 @@ const clashNumber = $("#clash-number");
 const clashTotal = $("#clash-total");
 const clashArena = $("#clash-arena");
 const defeatStamp = $("#defeat-stamp");
+const comicSfx = $("#comic-sfx");
+const battleLanes = [$("#battle-lane-one"), $("#battle-lane-two")];
+const battleBubbles = [$("#battle-bubble-one"), $("#battle-bubble-two")];
+const battleBubbleSpeakers = [$("#battle-bubble-one-speaker"), $("#battle-bubble-two-speaker")];
+const battleBubbleCopies = [$("#battle-bubble-one-copy"), $("#battle-bubble-two-copy")];
 const battleCardOne = $("#battle-card-one");
 const battleCardTwo = $("#battle-card-two");
 const clashVerdict = $("#clash-verdict");
@@ -145,6 +163,21 @@ const tierColors = {
 };
 
 const severityClasses = ["severity-fair", "severity-edge", "severity-dominant", "severity-brutal", "severity-soloed"];
+const battlePresentationClasses = [
+  "is-loaded",
+  "is-impact",
+  "is-windup",
+  "is-panel-impact",
+  "is-tap-beat",
+  "show-defeat",
+  "is-speed-blitz",
+  "is-extreme-blitz",
+  "is-power-clash",
+  "is-boundless-clash",
+  "is-immune",
+  "is-last-stand",
+  ...severityClasses,
+];
 const severityCopy = Object.freeze({
   fair: "PHOTO FINISH",
   edge: "NARROW EDGE",
@@ -166,6 +199,7 @@ const state = {
   handoffMode: "player-two",
   battle: null,
   battleToken: 0,
+  battleAbortController: null,
   flowToken: 0,
   onlineRole: null,
   localPlayerIndex: 0,
@@ -180,6 +214,7 @@ let sandboxImageObserver = null;
 let onlineNetwork = null;
 let onlineNetworkName = "";
 let pendingOnlineTeamIds = null;
+let clashTrackUiGeneration = 0;
 
 class SoundEngine {
   constructor() {
@@ -187,6 +222,12 @@ class SoundEngine {
     this.master = null;
     this.compressor = null;
     this.activeNodes = new Set();
+    this.scoreNodes = new Set();
+    this.customTrackBuffer = null;
+    this.customTrackName = "";
+    this.customTrackLoadGeneration = 0;
+    this.musicSource = null;
+    this.musicGain = null;
     this.enabled = readSoundPreference();
   }
 
@@ -213,14 +254,15 @@ class SoundEngine {
     if (!this.enabled) return;
     this.arm();
     if (!this.context) return;
-    const scale = motionPreference.matches ? REDUCED_MOTION_AUDIO_SCALE : 1;
-    const { delay = 0, type = "sine", volume = 0.035, endFrequency = frequency } = options;
+    const { channel = "effect", delay = 0, type = "sine", volume = 0.035, endFrequency = frequency } = options;
+    const scale = channel === "score" ? 1 : motionPreference.matches ? REDUCED_MOTION_AUDIO_SCALE : 1;
     const scaledDuration = Math.max(0.025, duration * scale);
     const start = this.context.currentTime + delay * scale;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
     const activeNode = { oscillator, gain };
-    this.activeNodes.add(activeNode);
+    const nodeSet = channel === "score" ? this.scoreNodes : this.activeNodes;
+    nodeSet.add(activeNode);
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(Math.max(35, frequency), start);
     oscillator.frequency.exponentialRampToValueAtTime(Math.max(35, endFrequency), start + scaledDuration);
@@ -230,13 +272,13 @@ class SoundEngine {
     oscillator.connect(gain).connect(this.master);
     oscillator.start(start);
     oscillator.stop(start + scaledDuration + 0.02);
-    oscillator.addEventListener("ended", () => this.activeNodes.delete(activeNode), { once: true });
+    oscillator.addEventListener("ended", () => nodeSet.delete(activeNode), { once: true });
   }
 
-  stopAll() {
+  stopNodes(nodes) {
     if (!this.context) return;
     const now = this.context.currentTime;
-    this.activeNodes.forEach(({ oscillator, gain }) => {
+    nodes.forEach(({ oscillator, gain }) => {
       try {
         gain.gain.cancelScheduledValues(now);
         gain.gain.setTargetAtTime(0.0001, now, 0.012);
@@ -245,11 +287,116 @@ class SoundEngine {
         // The node may already have ended.
       }
     });
-    this.activeNodes.clear();
+    nodes.clear();
+  }
+
+  stopEffects() {
+    this.stopNodes(this.activeNodes);
+  }
+
+  stopCinematicScore() {
+    this.stopNodes(this.scoreNodes);
+    if (this.musicSource) {
+      try {
+        this.musicGain?.gain.setTargetAtTime(0.0001, this.context.currentTime, 0.02);
+        this.musicSource.stop(this.context.currentTime + 0.08);
+      } catch {
+        // The source may already have ended.
+      }
+    }
+    this.musicSource = null;
+    this.musicGain = null;
+  }
+
+  stopAll() {
+    this.stopEffects();
+    this.stopCinematicScore();
+  }
+
+  async loadCustomTrack(file) {
+    const extensionLooksAudio = /\.(?:mp3|m4a|wav|ogg)$/i.test(file?.name || "");
+    if (!(file instanceof File) || (!file.type.startsWith("audio/") && !extensionLooksAudio)) {
+      throw new Error("Choose an MP3, M4A, WAV, or OGG audio file.");
+    }
+    if (file.size > MAX_LOCAL_TRACK_BYTES) throw new Error("Choose an audio file smaller than 60 MB.");
+    const loadGeneration = ++this.customTrackLoadGeneration;
+    this.stopCinematicScore();
+    this.customTrackBuffer = null;
+    this.customTrackName = "";
+    this.arm();
+    if (!this.context) throw new Error("This browser cannot decode local audio.");
+    const encoded = await file.arrayBuffer();
+    this.assertCurrentTrackLoad(loadGeneration);
+    const decoded = await this.context.decodeAudioData(encoded.slice(0));
+    this.assertCurrentTrackLoad(loadGeneration);
+    if (decoded.duration < CUSTOM_TRACK_MIN_DURATION_SECONDS) {
+      throw new Error("Choose a track at least 55 seconds long.");
+    }
+    this.customTrackBuffer = decoded;
+    this.customTrackName = file.name;
+    return this.customTrackName;
+  }
+
+  assertCurrentTrackLoad(loadGeneration) {
+    if (loadGeneration === this.customTrackLoadGeneration) return;
+    const error = new Error("Audio selection canceled.");
+    error.name = "AbortError";
+    throw error;
+  }
+
+  clearCustomTrack() {
+    this.customTrackLoadGeneration += 1;
+    this.stopCinematicScore();
+    this.customTrackBuffer = null;
+    this.customTrackName = "";
+  }
+
+  originalBoundlessScore() {
+    if (!this.enabled) return "muted";
+    this.arm();
+    const roots = [55, 65.41, 73.42, 82.41, 61.74, 92.5, 55];
+    roots.forEach((root, index) => {
+      const delay = index * 4;
+      this.tone(root, 5.2, { channel: "score", delay, type: "sine", volume: 0.038, endFrequency: root * 1.015 });
+      this.tone(root * 1.5, 4.4, { channel: "score", delay: delay + 0.35, type: "triangle", volume: 0.012, endFrequency: root * 1.47 });
+      this.tone(root * 2, 3.6, { channel: "score", delay: delay + 0.8, type: "sine", volume: 0.009, endFrequency: root * 2.04 });
+    });
+    return "original";
+  }
+
+  startBoundlessScore() {
+    if (!this.enabled) return "muted";
+    this.stopCinematicScore();
+    if (!this.customTrackBuffer) return this.originalBoundlessScore();
+    try {
+      this.arm();
+      const source = this.context.createBufferSource();
+      const gain = this.context.createGain();
+      source.buffer = this.customTrackBuffer;
+      gain.gain.value = 0.58;
+      source.connect(gain).connect(this.master);
+      source.start(this.context.currentTime, CUSTOM_TRACK_START_SECONDS);
+      source.addEventListener("ended", () => {
+        if (this.musicSource === source) {
+          this.musicSource = null;
+          this.musicGain = null;
+        }
+      }, { once: true });
+      this.musicSource = source;
+      this.musicGain = gain;
+      return "custom";
+    } catch {
+      return this.originalBoundlessScore();
+    }
   }
 
   tap() {
     this.tone(260, 0.045, { type: "square", volume: 0.018, endFrequency: 190 });
+  }
+
+  mangaTap() {
+    this.tone(310, 0.075, { type: "square", volume: 0.022, endFrequency: 155 });
+    this.tone(360, 0.09, { delay: 0.28, type: "square", volume: 0.024, endFrequency: 145 });
   }
 
   wheel() {
@@ -396,7 +543,7 @@ class SoundEngine {
   }
 
   boundlessClash() {
-    this.stopAll();
+    this.stopEffects();
     [55, 82, 123, 185, 370, 740].forEach((note, index) => {
       this.tone(note, 0.58, {
         delay: index * 0.11,
@@ -518,6 +665,32 @@ function wait(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+function battleWait(milliseconds, token) {
+  const controller = state.battleAbortController;
+  if (!controller || controller.signal.aborted || token !== state.battleToken) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const finish = (completed) => {
+      window.clearTimeout(timer);
+      controller.signal.removeEventListener("abort", onAbort);
+      resolve(completed && token === state.battleToken);
+    };
+    const onAbort = () => finish(false);
+    const timer = window.setTimeout(() => finish(true), Math.max(0, milliseconds));
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function waitForBattleCue(epoch, offset, token) {
+  return battleWait(Math.max(0, epoch + offset - performance.now()), token);
+}
+
+function cancelBattlePresentation({ stopSound = true } = {}) {
+  if (state.battleAbortController) state.battleAbortController.abort();
+  state.battleAbortController = null;
+  clearBattlePresentation();
+  if (stopSound) sound.stopAll();
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -613,6 +786,36 @@ function updateSoundButton() {
   soundToggle.setAttribute("aria-pressed", String(sound.enabled));
   soundToggle.setAttribute("aria-label", sound.enabled ? "Mute sound" : "Turn on sound");
   soundToggle.firstElementChild.textContent = sound.enabled ? "SFX" : "OFF";
+}
+
+function showOriginalClashTrackStatus(message = "ORIGINAL DRAMATIC SCORE ACTIVE · OPTIONAL LOCAL AUDIO STARTS AT 0:35") {
+  clashTrackStatus.textContent = message;
+  clashTrackClear.hidden = true;
+}
+
+async function loadClashTrack(file) {
+  const uiGeneration = ++clashTrackUiGeneration;
+  clashTrackLoad.disabled = true;
+  clashTrackClear.disabled = true;
+  beginBattle.disabled = true;
+  clashTrackStatus.textContent = "DECODING LOCAL AUDIO…";
+  try {
+    const name = await sound.loadCustomTrack(file);
+    clashTrackStatus.textContent = `${name.toUpperCase()} READY · STARTS LOCALLY AT 0:35`;
+    clashTrackClear.hidden = false;
+    showToast("Licensed clash track ready. It stays on this device.");
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    sound.clearCustomTrack();
+    showOriginalClashTrackStatus(error instanceof Error ? `${error.message.toUpperCase()} · ORIGINAL SCORE ACTIVE` : undefined);
+    showToast(error instanceof Error ? error.message : "That audio file could not be loaded.");
+  } finally {
+    if (uiGeneration !== clashTrackUiGeneration) return;
+    clashTrackLoad.disabled = false;
+    clashTrackClear.disabled = false;
+    beginBattle.disabled = false;
+    clashTrackInput.value = "";
+  }
 }
 
 function sideName(index) {
@@ -1117,6 +1320,7 @@ function emptyPick(index) {
 }
 
 function resetState() {
+  cancelBattlePresentation();
   state.activePlayer = 0;
   state.teams = [[], []];
   state.used = new Set();
@@ -1924,14 +2128,14 @@ function handleOnlinePeerLeft() {
   if (!state.onlineRole) return;
   state.flowToken += 1;
   state.battleToken += 1;
-  sound.stopAll();
+  cancelBattlePresentation();
   showOnlineWait("CONNECTION CLOSED", "OPPONENT LEFT.", "This match has ended. Return to the lobby browser to find another challenger.");
 }
 
 async function leaveOnlineMatchToBrowser() {
   state.flowToken += 1;
   state.battleToken += 1;
-  sound.stopAll();
+  cancelBattlePresentation();
   if (onlineNetwork) await onlineNetwork.leaveMatch();
   resetState();
   state.mode = "online";
@@ -1943,7 +2147,7 @@ async function leaveOnlineMatchToBrowser() {
 async function returnToModeSelection() {
   state.flowToken += 1;
   state.battleToken += 1;
-  sound.stopAll();
+  cancelBattlePresentation();
   if (onlineNetwork) await onlineNetwork.destroy();
   onlineNetwork = null;
   onlineNetworkName = "";
@@ -2044,8 +2248,92 @@ function showDefeatStamp(text) {
   clashArena.classList.add("show-defeat");
 }
 
+function clearBattleBubbles() {
+  battleBubbles.forEach((bubble, index) => {
+    bubble.classList.remove("is-visible");
+    bubble.hidden = true;
+    battleLanes[index].classList.remove("has-dialogue");
+  });
+  delete clashArena.dataset.dialogueSide;
+}
+
+function showBattleBubble(side, fighter, copy, kind = "speech") {
+  const index = side === 2 ? 1 : 0;
+  const bubble = battleBubbles[index];
+  bubble.hidden = false;
+  bubble.dataset.kind = kind;
+  battleBubbleSpeakers[index].textContent = fighter.name;
+  battleBubbleCopies[index].textContent = copy;
+  battleLanes[index].classList.add("has-dialogue");
+  void bubble.offsetWidth;
+  bubble.classList.add("is-visible");
+}
+
+function setBattleCamera(focus = "", beat = "") {
+  if (focus) clashArena.dataset.focus = focus;
+  else delete clashArena.dataset.focus;
+  if (beat) clashArena.dataset.beat = beat;
+  else delete clashArena.dataset.beat;
+}
+
+function showComicSfx(first = "TAP", second = "TAP") {
+  const words = $$('span', comicSfx);
+  words[0].textContent = first;
+  words[1].textContent = second;
+  comicSfx.classList.remove("is-visible");
+  void comicSfx.offsetWidth;
+  comicSfx.classList.add("is-visible");
+}
+
+function clearBattlePresentation() {
+  clearBattleBubbles();
+  comicSfx.classList.remove("is-visible");
+  setBattleCamera();
+  delete clashArena.dataset.cue;
+  delete clashArena.dataset.cueIndex;
+  delete clashArena.dataset.eventSequence;
+  delete clashArena.dataset.scoreKind;
+  delete clashArena.dataset.scoreOffset;
+  delete clashArena.dataset.lastStand;
+  clashArena.classList.remove(...battlePresentationClasses);
+  clashArena.style.removeProperty("--winner-color");
+  defeatStamp.textContent = "";
+  clashVerdict.className = "clash-verdict manga-caption";
+  clashVerdict.removeAttribute("data-severity");
+  clashVerdict.style.removeProperty("--winner-color");
+  $("span", clashVerdict).textContent = "POWER READINGS LOCKED";
+  $("strong", clashVerdict).textContent = "PREPARE FOR IMPACT";
+  battleAnnouncer.textContent = "";
+}
+
+function immunityTauntForEvent(event) {
+  return immunityTaunts[(event.sequence * 7 + event.round) % immunityTaunts.length];
+}
+
+function renderEventDialogue(event, phase) {
+  clearBattleBubbles();
+  const { left, right } = eventFighters(event);
+  const defender = event.defender === 1 ? left : right;
+  const defenderHealth = event.defender === 1 ? event.leftHealthAfter : event.rightHealthAfter;
+  const plans = eventDialogue(event, phase, {
+    taunt: immunityTauntForEvent(event),
+    remaining: `${battleHealthText(defender, defenderHealth)} LEFT. STILL STANDING.`,
+  });
+  plans.forEach((plan) => showBattleBubble(plan.side, plan.side === 1 ? left : right, plan.copy, plan.kind));
+  if (plans.length) {
+    const sides = [...new Set(plans.map(({ side }) => side))];
+    clashArena.dataset.dialogueSide = sides.length === 2 ? "both" : String(sides[0]);
+    setBattleCamera(sides.length === 2 ? "both" : sides[0] === 1 ? "left" : "right", phase);
+    battleAnnouncer.textContent = plans.map((plan) => {
+      const fighter = plan.side === 1 ? left : right;
+      return `${fighter.name} ${plan.kind === "thought" ? "thinks" : "says"}, ${plan.copy}`;
+    }).join(" ");
+  }
+  return plans;
+}
+
 function setEventPreview(event, matchup) {
-  clashVerdict.className = "clash-verdict";
+  clashVerdict.className = "clash-verdict manga-caption";
   clashVerdict.dataset.severity = matchup.severity;
   clashVerdict.style.removeProperty("--winner-color");
   const eyebrow = $("span", clashVerdict);
@@ -2055,7 +2343,7 @@ function setEventPreview(event, matchup) {
   if (event.type === "boundless-clash") {
     clashVerdict.classList.add("is-null");
     eyebrow.textContent = "BOUNDLESS STRENGTH × BOUNDLESS DURABILITY";
-    headline.textContent = "“LET’S USE EVERY LAST DROP.” · “JUST THIS ONCE.”";
+    headline.textContent = "REALITY HOLDS ITS BREATH";
   } else if (event.type === "power-clash") {
     clashVerdict.classList.add("is-win");
     eyebrow.textContent = `${left.strengthLabel.toUpperCase()} STR × ${right.strengthLabel.toUpperCase()} STR`;
@@ -2078,7 +2366,6 @@ function setEventPreview(event, matchup) {
         ? "OVERWHELMING POWER!"
         : `${attacker.name.toUpperCase()} ATTACKS`;
   }
-  battleAnnouncer.textContent = `${eyebrow.textContent}. ${headline.textContent}`;
 }
 
 function setEventVerdict(event, matchup) {
@@ -2104,9 +2391,8 @@ function setEventVerdict(event, matchup) {
     const defender = event.defender === 1 ? left : right;
     const defenderHealth = event.defender === 1 ? event.leftHealthAfter : event.rightHealthAfter;
     if (event.immune) {
-      const taunt = immunityTaunts[(event.sequence * 7 + event.round) % immunityTaunts.length];
       eyebrow.textContent = "BOUNDLESS DURABILITY · 0 DAMAGE";
-      headline.textContent = `${defender.name.toUpperCase()}: “${taunt}”`;
+      headline.textContent = `${defender.name.toUpperCase()} IS COMPLETELY UNMOVED`;
     } else if (event.oneShot) {
       eyebrow.textContent = `${attacker.name.toUpperCase()} DEALS ${formatPercent(event.damage)}% DAMAGE`;
       headline.textContent = `ONE SHOT · ${defender.name.toUpperCase()} ERASED`;
@@ -2121,12 +2407,16 @@ function setEventVerdict(event, matchup) {
   if (defenderEliminated && (matchup.severity === "brutal" || matchup.severity === "soloed")) {
     showDefeatStamp(matchup.severity === "soloed" ? "SOLOED" : "BRUTAL");
   }
-  battleAnnouncer.textContent = `${eyebrow.textContent}. ${headline.textContent}`;
 }
 
 function setEventEffects(event, matchup, isLastStand) {
+  clearBattleBubbles();
+  comicSfx.classList.remove("is-visible");
   clashArena.classList.remove(
     "is-impact",
+    "is-windup",
+    "is-panel-impact",
+    "is-tap-beat",
     "show-defeat",
     "is-speed-blitz",
     "is-extreme-blitz",
@@ -2149,15 +2439,82 @@ function setEventEffects(event, matchup, isLastStand) {
   setEventPreview(event, matchup);
 }
 
+function showLastStandDialogue(event, left, right) {
+  clearBattleBubbles();
+  const plans = [];
+  if (event.leftLastStand) plans.push({ side: 1, fighter: left });
+  if (event.rightLastStand) plans.push({ side: 2, fighter: right });
+  plans.forEach(({ side, fighter }) => showBattleBubble(side, fighter, "LAST ONE. NO BACKING DOWN.", "thought"));
+  clashArena.dataset.dialogueSide = plans.length === 2 ? "both" : String(plans[0].side);
+  setBattleCamera(plans.length === 2 ? "both" : plans[0].side === 1 ? "left" : "right", "last-stand");
+  battleAnnouncer.textContent = plans.map(({ fighter }) => `${fighter.name} thinks, Last one. No backing down.`).join(" ");
+}
+
+function applyBattleEventOutcome(event, matchup) {
+  updateCardHealth(battleCardOne, event.leftHealthAfter, event.leftHealthAfter <= 0);
+  updateCardHealth(battleCardTwo, event.rightHealthAfter, event.rightHealthAfter <= 0);
+  setEventVerdict(event, matchup);
+  battleScoreOne.textContent = String(eventRemaining(event, 1));
+  battleScoreTwo.textContent = String(eventRemaining(event, 2));
+}
+
+async function playBoundlessCinematic(event, matchup, token) {
+  const { left, right } = eventFighters(event);
+  const epoch = performance.now();
+  const scoreKind = sound.startBoundlessScore();
+  clashArena.dataset.scoreKind = scoreKind;
+  clashArena.dataset.scoreOffset = String(CUSTOM_TRACK_START_SECONDS);
+
+  for (let cueIndex = 0; cueIndex < BOUNDLESS_CUES.length; cueIndex += 1) {
+    const cue = BOUNDLESS_CUES[cueIndex];
+    if (cueIndex > 0 && !(await waitForBattleCue(epoch, cue.at, token))) return false;
+    clashArena.dataset.cue = cue.cue;
+    clashArena.dataset.cueIndex = String(cueIndex);
+    setBattleCamera(cue.focus, cue.cue);
+
+    if (cue.cue === "left-dialogue" || cue.cue === "right-dialogue") {
+      clearBattleBubbles();
+      const fighter = cue.side === 1 ? left : right;
+      showBattleBubble(cue.side, fighter, cue.copy, "shout");
+      clashArena.dataset.dialogueSide = String(cue.side);
+      battleAnnouncer.textContent = `${fighter.name} says, ${cue.copy}`;
+      sound.tap();
+    } else if (cue.cue === "windup") {
+      clearBattleBubbles();
+      clashArena.classList.add("is-windup", "is-tap-beat");
+      showComicSfx("TAP", "TAP");
+      sound.mangaTap();
+      battleAnnouncer.textContent = `${left.name} and ${right.name} step forward. Tap. Tap.`;
+    } else if (cue.cue === "impact") {
+      comicSfx.classList.remove("is-visible");
+      clashArena.classList.remove("is-windup", "is-tap-beat");
+      clashArena.classList.add("is-impact", "is-panel-impact");
+      showDefeatStamp("CLASH");
+      sound.boundlessClash();
+      battleAnnouncer.textContent = `${left.name} and ${right.name} unleash everything. Boundless clash.`;
+    } else {
+      clashArena.classList.remove("is-panel-impact");
+      applyBattleEventOutcome(event, matchup);
+      showDefeatStamp("DOUBLE KO");
+      sound.nullify();
+      sound.stopCinematicScore();
+      battleAnnouncer.textContent = `${left.name} and ${right.name} cancel each other out. Double knockout.`;
+    }
+  }
+
+  return battleWait(BATTLE_PACE.response, token);
+}
+
 async function playBattle() {
   if (!state.battle && !prepareReveal()) return;
+  cancelBattlePresentation();
   const token = ++state.battleToken;
+  state.battleAbortController = new AbortController();
   showScreen("battle-screen");
   battleScoreOne.textContent = String(state.battle.sortedOne.length);
   battleScoreTwo.textContent = String(state.battle.sortedTwo.length);
   clashTotal.textContent = `/ ${String(state.battle.events.length).padStart(2, "0")}`;
   skipBattle.disabled = false;
-  sound.stopAll();
   sound.battleStart();
   let activeRound = 0;
 
@@ -2171,6 +2528,7 @@ async function playBattle() {
     clashNumber.textContent = String(index + 1).padStart(2, "0");
 
     if (newRound) {
+      clearBattlePresentation();
       activeRound = event.round;
       if (isLastStand) {
         clashArena.dataset.lastStand = event.leftLastStand && event.rightLastStand
@@ -2198,38 +2556,46 @@ async function playBattle() {
         clashArena.classList.add("is-last-stand");
         const doubleLastStand = clashArena.dataset.lastStand === "both";
         showDefeatStamp(doubleLastStand ? "DOUBLE LAST STAND" : "LAST STAND");
-        battleAnnouncer.textContent = doubleLastStand
-          ? `${sideName(0)} and ${sideName(1)} send out their final fighters. Double last stand.`
-          : `${event.leftLastStand ? sideName(0) : sideName(1)} sends out the final fighter. Last stand.`;
+        showLastStandDialogue(event, left, right);
         sound.handoff();
+      } else {
+        clearBattleBubbles();
+        setBattleCamera();
       }
-      await wait(motionTime(isLastStand ? 850 : 520, 30));
-      if (token !== state.battleToken) return;
+      if (!(await battleWait(BATTLE_PACE.entrance, token))) return;
     }
 
     battleScoreOne.textContent = String(state.battle.sortedOne.length - event.leftIndex);
     battleScoreTwo.textContent = String(state.battle.sortedTwo.length - event.rightIndex);
+    clashArena.dataset.cue = "dialogue";
+    clashArena.dataset.cueIndex = String(index);
+    clashArena.dataset.eventSequence = String(event.sequence);
     setEventEffects(event, matchup, isLastStand);
 
     if (event.type === "boundless-clash") {
-      sound.stopAll();
-      await wait(motionTime(520, 35));
-      if (token !== state.battleToken) return;
-      showDefeatStamp("3 · 2 · 1");
-      sound.boundlessClash();
-      await wait(motionTime(940, 35));
-    } else {
-      if (event.blitzHit === 1) sound.blitz(event.blitzType === "extreme-blitz");
-      else sound.charge(matchup.severity);
-      await wait(motionTime(330, 25));
+      if (!(await playBoundlessCinematic(event, matchup, token))) return;
+      continue;
     }
-    if (token !== state.battleToken) return;
 
-    clashArena.classList.add("is-impact");
-    if (event.type === "boundless-clash") {
-      showDefeatStamp("CLASH");
-      sound.boundlessClash();
-    } else if (event.type === "power-clash") {
+    renderEventDialogue(event, "preview");
+    if (event.blitzHit === 1) sound.blitz(event.blitzType === "extreme-blitz");
+    else sound.charge(matchup.severity);
+    if (!(await battleWait(BATTLE_PACE.dialogue, token))) return;
+
+    clashArena.dataset.cue = "tap";
+    setBattleCamera(clashArena.dataset.focus || "both", "tap");
+    clashArena.classList.add("is-windup", "is-tap-beat");
+    showComicSfx("TAP", "TAP");
+    sound.mangaTap();
+    if (!(await battleWait(BATTLE_PACE.tap, token))) return;
+
+    clearBattleBubbles();
+    comicSfx.classList.remove("is-visible");
+    clashArena.classList.remove("is-windup", "is-tap-beat");
+    clashArena.classList.add("is-impact", "is-panel-impact");
+    clashArena.dataset.cue = "impact";
+    setBattleCamera("both", "impact");
+    if (event.type === "power-clash") {
       sound.powerClash();
     } else if (event.type === "stalemate" || event.immune) {
       sound.immune();
@@ -2238,35 +2604,27 @@ async function playBattle() {
       const defender = event.defender === 1 ? left : right;
       sound.impact(attacker.strength, defender.durability, matchup.severity);
     }
+    if (!(await battleWait(BATTLE_PACE.impact, token))) return;
 
-    await wait(motionTime(event.type === "boundless-clash" ? 820 : 420, 30));
-    if (token !== state.battleToken) return;
-    updateCardHealth(battleCardOne, event.leftHealthAfter, event.leftHealthAfter <= 0);
-    updateCardHealth(battleCardTwo, event.rightHealthAfter, event.rightHealthAfter <= 0);
-    setEventVerdict(event, matchup);
-    battleScoreOne.textContent = String(eventRemaining(event, 1));
-    battleScoreTwo.textContent = String(eventRemaining(event, 2));
-
-    if (event.type === "boundless-clash") {
-      showDefeatStamp("DOUBLE KO");
-      sound.nullify();
-    } else if (event.type === "attack") {
+    clashArena.classList.remove("is-panel-impact");
+    clashArena.dataset.cue = "verdict";
+    applyBattleEventOutcome(event, matchup);
+    renderEventDialogue(event, "verdict");
+    if (event.type === "attack") {
       const defenderEliminated = event.defender === 1 ? event.leftHealthAfter <= 0 : event.rightHealthAfter <= 0;
       sound.drain(defenderEliminated);
       if (defenderEliminated) sound.defeat(matchup.severity, event.attacker);
     }
-
-    await wait(motionTime(event.type === "boundless-clash" ? 1450 : 760, 35));
+    if (!(await battleWait(BATTLE_PACE.response, token))) return;
   }
 
-  if (token !== state.battleToken) return;
-  await wait(motionTime(420, 25));
-  if (token !== state.battleToken) return;
+  if (!(await battleWait(BATTLE_PACE.finish, token))) return;
   showResult();
 }
 
 function showResult() {
   state.battleToken += 1;
+  cancelBattlePresentation();
   const battle = state.battle;
   const isDraw = battle.winner === 0;
   resultKicker.textContent = isDraw ? "FINAL VERDICT · COMPLETE STALEMATE" : "FINAL VERDICT · FIGHTERS LEFT";
@@ -2352,12 +2710,29 @@ sandboxStart.addEventListener("click", startSandboxBattle);
 spinAction.addEventListener("click", handleSpinAction);
 handoffAction.addEventListener("click", continueHandoff);
 botRevealAction.addEventListener("click", prepareReveal);
-beginBattle.addEventListener("click", playBattle);
+clashTrackLoad.addEventListener("click", () => clashTrackInput.click());
+clashTrackInput.addEventListener("change", () => {
+  const [file] = clashTrackInput.files || [];
+  if (file) loadClashTrack(file);
+});
+clashTrackClear.addEventListener("click", () => {
+  clashTrackUiGeneration += 1;
+  sound.clearCustomTrack();
+  clashTrackLoad.disabled = false;
+  clashTrackClear.disabled = false;
+  beginBattle.disabled = false;
+  showOriginalClashTrackStatus();
+  showToast("Original dramatic clash score restored.");
+});
+beginBattle.addEventListener("click", () => {
+  sound.arm();
+  playBattle();
+});
 skipBattle.addEventListener("click", () => {
   if (!state.battle) return;
   state.battleToken += 1;
   skipBattle.disabled = true;
-  sound.stopAll();
+  cancelBattlePresentation();
   showResult();
 });
 resetGameButton.addEventListener("click", () => {
@@ -2424,6 +2799,17 @@ document.addEventListener("keydown", (event) => {
       action.click();
     }
   }
+});
+
+window.addEventListener("pagehide", () => {
+  state.battleToken += 1;
+  clashTrackUiGeneration += 1;
+  cancelBattlePresentation();
+  sound.clearCustomTrack();
+  clashTrackLoad.disabled = false;
+  clashTrackClear.disabled = false;
+  beginBattle.disabled = false;
+  showOriginalClashTrackStatus();
 });
 
 updateSoundButton();

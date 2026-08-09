@@ -19,6 +19,13 @@ A 3v3 multiverse draft with Pass & Play, a solo bot opponent, live peer-to-peer 
 6. Equal Strength and Speed opens with a Power Clash. Boundless Durability ignores lower Strength, while two fighters with both Boundless Strength and Durability erase each other in a special Double KO.
 7. The survivor keeps their remaining percentage health and immediately faces the next opposing fighter. The first team to exhaust all three opponents wins.
 
+## Battle presentation
+
+- Every spoken line and internal reaction appears in a manga speech, shout, or thought bubble above the fighter who owns it. The center panel is narration only.
+- Ordinary actions use a readable dialogue → TAP TAP → impact → reaction cadence, with comic-panel framing and camera focus that preserve the underlying fighter cards.
+- A full Boundless-versus-Boundless clash follows five exact five-second cues: left dialogue, right dialogue, shared windup, impact, and Double KO.
+- The reveal screen can load a local audio file you have permission to play. It never leaves the device, must be at least 55 seconds long, and begins at `0:35` for each Boundless clash. When no valid local file is selected, the game uses its built-in original dramatic score.
+
 ## Roster
 
 - Anime — 100 fighters: 30 Jujutsu Kaisen, 30 Naruto/Boruto, 30 One Piece, and 10 Dragon Ball
@@ -31,7 +38,7 @@ The category wheel uses 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, a
 
 ## Technical notes
 
-The game is static HTML, CSS, and JavaScript with no build step. Online matchmaking and match messages use lazily loaded, encrypted WebRTC peer connections; local and bot modes do not load the online transport. Public lobbies are live and ephemeral, so a host must keep the lobby open and refreshes or closed tabs end the current match. Layered sound effects are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
+The game is static HTML, CSS, and JavaScript with no build step. Online matchmaking and match messages use lazily loaded, encrypted WebRTC peer connections; local and bot modes do not load the online transport. Public lobbies are live and ephemeral, so a host must keep the lobby open and refreshes or closed tabs end the current match. Layered sound effects and the fallback clash score are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
 
 Run locally with any static server, then open its URL in a modern browser. The production site publishes directly from the `main` branch through GitHub Pages.
 

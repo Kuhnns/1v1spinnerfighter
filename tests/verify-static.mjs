@@ -15,6 +15,7 @@ assert.equal(new Set(ids).size, ids.length, "HTML IDs must be unique");
 const requiredFiles = [
   "styles.css",
   "script.js",
+  "battle-presentation.js",
   "game-logic.js",
   "online-network.js",
   "data/anime.js",
@@ -60,16 +61,23 @@ assert.match(html, /id="join-code"[^>]*maxlength="6"/);
 assert.match(html, /id="defeat-stamp"/);
 assert.doesNotMatch(html, /id="clash-verdict"[^>]*aria-live/);
 assert.match(html, /id="battle-announcer"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+for (const bubbleId of ["battle-bubble-one", "battle-bubble-two"]) {
+  assert.match(html, new RegExp(`id="${bubbleId}"[^>]*aria-hidden="true"`));
+}
+for (const trackId of ["clash-track-input", "clash-track-load", "clash-track-clear", "clash-track-status"]) {
+  assert.ok(ids.includes(trackId), `${trackId} must exist`);
+}
 assert.match(html, /id="category-wheel"[\s\S]*class="wheel-legend"[\s\S]*<\/div>\s*<\/div>\s*<div class="reel-stage"/);
 assert.match(script, /import \{ videoGameCharacters \} from "\.\/data\/video-games\.js\?v=[^"]+"/);
-assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-5"/);
-assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-5"/);
+assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-6"/);
+assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-6"/);
+assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-6"/);
 const outerScriptVersion = html.match(/src="script\.js\?v=([^"]+)"/)?.[1];
 const outerStyleVersion = html.match(/href="styles\.css\?v=([^"]+)"/)?.[1];
-assert.equal(outerScriptVersion, "20260809-5");
+assert.equal(outerScriptVersion, "20260809-6");
 assert.equal(outerStyleVersion, outerScriptVersion, "Outer CSS and JS cache keys must match");
 const importedVersions = [...script.matchAll(/from "\.\/[^"]+\?v=([^"]+)"/g)].map((match) => match[1]);
-assert.ok(importedVersions.length >= 7);
+assert.ok(importedVersions.length >= 8);
 assert.ok(importedVersions.every((version) => version === outerScriptVersion), "Every module cache key must match the outer script");
 assert.match(script, /startGameButton\.addEventListener\("click", \(\) => startNewGame\("pass"\)\)/);
 assert.match(script, /startBotButton\.addEventListener\("click", \(\) => startNewGame\("bot"\)\)/);
@@ -100,7 +108,7 @@ assert.match(
 );
 assert.match(
   script,
-  /await wait\(motionTime\(420, 25\)\);\s+if \(token !== state\.battleToken\) return;\s+showResult\(\);/,
+  /if \(!\(await battleWait\(BATTLE_PACE\.finish, token\)\)\) return;\s+showResult\(\);/,
   "A cancelled battle must not overwrite the disconnect screen during its final pause",
 );
 assert.match(script, /function canonicalTeam\(ids\)[\s\S]+fighterById\.get\(id\)/);
@@ -111,6 +119,30 @@ assert.match(script, /for \(let index = 0; index < state\.battle\.events\.length
 assert.match(script, /POWER CLASH KO · \$\{eliminated\.name\.toUpperCase\(\)\} FALLS/, "A lethal Power Clash must not claim that turn order was rolled");
 assert.match(script, /DOUBLE LAST STAND/, "Simultaneous final-fighter entrances need a two-sided announcement");
 assert.match(script, /clashArena\.dataset\.lastStand = event\.leftLastStand && event\.rightLastStand/, "Last Stand state must remain inspectable for the full matchup");
+assert.match(script, /state\.battleAbortController = new AbortController\(\)/, "Every battle presentation needs an abortable director");
+assert.match(script, /state\.battleAbortController\.abort\(\)/, "Cancelling a battle must abort pending readable holds immediately");
+assert.match(script, /waitForBattleCue\(epoch, cue\.at, token\)/, "Boundless cues must share one epoch to prevent drift");
+assert.match(script, /renderEventDialogue\(event, "preview"\)/);
+assert.match(script, /renderEventDialogue\(event, "verdict"\)/);
+assert.match(script, /source\.start\(this\.context\.currentTime, CUSTOM_TRACK_START_SECONDS\)/, "Local licensed audio must start at 0:35");
+assert.match(script, /decoded\.duration < CUSTOM_TRACK_MIN_DURATION_SECONDS/, "A local track must cover the full cinematic after 0:35");
+assert.match(script, /const loadGeneration = \+\+this\.customTrackLoadGeneration/, "Every local audio decode needs a unique generation");
+assert.match(script, /assertCurrentTrackLoad\(loadGeneration\)/, "A cleared or replaced local audio decode must not restore itself later");
+assert.match(script, /clearCustomTrack\(\) \{\s+this\.customTrackLoadGeneration \+= 1;/, "Clearing local audio must invalidate any in-flight decode");
+assert.match(
+  script,
+  /async function loadClashTrack[\s\S]+clashTrackClear\.disabled = true;[\s\S]+beginBattle\.disabled = true;[\s\S]+finally \{[\s\S]+beginBattle\.disabled = false;/,
+  "Clear and Begin Battle controls must be gated while local audio is decoding",
+);
+assert.match(
+  script,
+  /const uiGeneration = \+\+clashTrackUiGeneration;[\s\S]+finally \{\s+if \(uiGeneration !== clashTrackUiGeneration\) return;/,
+  "A stale decode must not unlock controls owned by a newer local-track request",
+);
+assert.match(script, /sound\.stopCinematicScore\(\)/, "The Boundless score must stop at the cinematic verdict");
+assert.match(script, /window\.addEventListener\("pagehide"[\s\S]+sound\.clearCustomTrack\(\)/, "Leaving the page must clear local audio and pending battle work");
+assert.match(script, /skipBattle\.addEventListener\("click"[\s\S]+cancelBattlePresentation\(\)/, "Skip must cancel dialogue timers and music before showing the result");
+assert.doesNotMatch(script, /headline\.textContent\s*=\s*`[^`]*[“”]/, "Central narration must not contain character dialogue");
 for (const soundMethod of ["blitz", "powerClash", "boundlessClash", "immune"]) {
   assert.match(script, new RegExp(`sound\\.${soundMethod}\\(`), `${soundMethod} sound must be used by the battle presentation`);
 }
@@ -122,6 +154,18 @@ for (const [id, center] of [["anime", 45], ["marvel", 135], ["dc", 225], ["games
   assert.match(script, new RegExp(`id: "${id}"[^\n]+center: ${center}`), `${id} must be wired to its wheel-sector center`);
 }
 assert.match(script, /clashArena\.classList\.add\(`severity-\$\{matchup\.severity\}`\)/);
+for (const staleClass of ["is-impact", "show-defeat", "is-boundless-clash", "is-immune", "is-last-stand"]) {
+  assert.match(
+    script,
+    new RegExp(`const battlePresentationClasses = \\[[\\s\\S]+?"${staleClass}"`),
+    `${staleClass} must be cleared before a replay or new-fighter entrance`,
+  );
+}
+assert.match(
+  script,
+  /if \(newRound\) \{\s+clearBattlePresentation\(\);/,
+  "A new fighter entrance must clear the previous clash panel before its readable hold",
+);
 assert.match(script, /sound\.defeat\(matchup\.severity, event\.attacker\)/);
 assert.match(script, /aria-valuetext="\$\{escapeHtml\(`\$\{battleHealthText\(character, healthState\.current\)\} remaining`\)\}"/);
 assert.match(script, /motionPreference\.matches \? minimal : standard/);
@@ -140,6 +184,9 @@ assert.match(styles, /\.online-browser-panel/);
 assert.match(styles, /\.fighter-stats/);
 assert.match(styles, /\.lineup-stats/);
 assert.match(styles, /\.sandbox-slot-portrait/);
+for (const comicClass of ["manga-bubble", "manga-panel-grid", "comic-sfx", "manga-caption", "battle-lane"]) {
+  assert.match(styles, new RegExp(`\\.${comicClass}`), `${comicClass} needs a visual treatment`);
+}
 for (const effectClass of ["is-speed-blitz", "is-extreme-blitz", "is-power-clash", "is-boundless-clash", "is-immune", "is-last-stand"]) {
   assert.match(styles, new RegExp(`\\.${effectClass}`), `${effectClass} needs a visual treatment`);
 }

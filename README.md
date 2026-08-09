@@ -1,6 +1,12 @@
 # 1v1 Spinner Fighter
 
-A same-device, pass-and-play 3v3 multiverse draft. Each player privately spins three times, passes the device, and reveals a power-sorted squad for a cinematic winner-stays-on battle.
+A 3v3 multiverse draft with original Pass & Play, a solo bot opponent, and live peer-to-peer online lobbies. Every mode ends in the same cinematic, power-sorted winner-stays-on battle.
+
+## Game modes
+
+- Pass & Play — the original game: two private three-spin drafts on one device with a handoff between players.
+- Play with Bot — you draft first, then the bot spins and reveals all three of its weighted picks in one simultaneous animation.
+- Online — choose a display name, browse live public lobbies, create a six-character lobby, or join another player. The host drafts first and both squads remain concealed until they are complete.
 
 ## How to play
 
@@ -24,7 +30,7 @@ The category wheel uses 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, a
 
 ## Technical notes
 
-The game is static HTML, CSS, and JavaScript with no build step or online multiplayer. Layered sound effects are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
+The game is static HTML, CSS, and JavaScript with no build step. Online matchmaking and match messages use lazily loaded, encrypted WebRTC peer connections; local and bot modes do not load the online transport. Public lobbies are live and ephemeral, so a host must keep the lobby open and refreshes or closed tabs end the current match. Layered sound effects are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
 
 Run locally with any static server, then open its URL in a modern browser. The production site publishes directly from the `main` branch through GitHub Pages.
 

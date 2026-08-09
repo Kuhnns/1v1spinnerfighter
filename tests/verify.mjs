@@ -7,6 +7,7 @@ import {
   CATEGORY_WEIGHTS,
   classifyPowerMismatch,
   chooseWeighted,
+  draftAutomatedTeam,
   formatHealth,
   formatPower,
   healthToPowerString,
@@ -63,6 +64,111 @@ assert.equal(chooseWeighted(weighted, 0.75).id, "games");
 assert.equal(chooseWeighted(weighted, 0.899999).id, "games");
 assert.equal(chooseWeighted(weighted, 0.9).id, "menace");
 assert.equal(chooseWeighted(weighted, 0.95).id, "menace");
+
+const draftFighter = (id) => Object.freeze({
+  id,
+  name: id.toUpperCase(),
+  form: "Test Form",
+  source: "Test Source",
+  wiki: "Test Fighter",
+  power: "1",
+});
+const alphaOne = draftFighter("alpha-1");
+const alphaTwo = draftFighter("alpha-2");
+const alphaThree = draftFighter("alpha-3");
+const betaOne = draftFighter("beta-1");
+const betaTwo = draftFighter("beta-2");
+const gammaOne = draftFighter("gamma-1");
+const gammaTwo = draftFighter("gamma-2");
+const automatedCategories = Object.freeze([
+  Object.freeze({ id: "alpha", label: "ALPHA", weight: 0.5, roster: Object.freeze([alphaOne, alphaTwo, alphaThree]) }),
+  Object.freeze({ id: "beta", label: "BETA", weight: 0.3, roster: Object.freeze([betaOne, betaTwo]) }),
+  Object.freeze({ id: "gamma", label: "GAMMA", weight: 0.2, roster: Object.freeze([gammaOne, gammaTwo]) }),
+]);
+
+function sequenceRandom(values) {
+  let calls = 0;
+  const random = () => values[calls++];
+  random.calls = () => calls;
+  return random;
+}
+
+const inputUsed = new Set([alphaOne.id, betaOne.id]);
+const inputUsedSnapshot = [...inputUsed];
+const deterministicRandom = sequenceRandom([0, 0, 0.99, 0, 0.49, 0.999]);
+const automatedTeam = draftAutomatedTeam(automatedCategories, inputUsed, deterministicRandom);
+assert.deepEqual(automatedTeam.map(({ id }) => id), ["alpha-2", "gamma-1", "alpha-3"]);
+assert.deepEqual(automatedTeam.map(({ categoryId }) => categoryId), ["alpha", "gamma", "alpha"]);
+assert.deepEqual(automatedTeam.map(({ categoryLabel }) => categoryLabel), ["ALPHA", "GAMMA", "ALPHA"]);
+assert.equal(automatedTeam.length, 3);
+assert.equal(new Set(automatedTeam.map(({ id }) => id)).size, 3);
+assert.equal(deterministicRandom.calls(), 6, "Automated drafting must consume exactly two random units per pick");
+assert.deepEqual([...inputUsed], inputUsedSnapshot, "Automated drafting must not mutate its used-id Set");
+assert.ok(automatedTeam.every(({ id }) => !inputUsed.has(id)));
+assert.notEqual(automatedTeam[0], alphaTwo, "Decorating a fighter must return a new record");
+assert.equal("categoryId" in alphaTwo, false, "Roster fighters must not be decorated in place");
+
+const exhaustedCategoryRandom = sequenceRandom([0, 0, 0, 0.999, 0.5, 0]);
+const exhaustedCategoryTeam = draftAutomatedTeam([
+  { id: "heavy", label: "HEAVY", weight: 0.99, roster: [draftFighter("heavy-only")] },
+  {
+    id: "reserve",
+    label: "RESERVE",
+    weight: 0.01,
+    roster: [draftFighter("reserve-1"), draftFighter("reserve-2"), draftFighter("reserve-3")],
+  },
+], new Set(), exhaustedCategoryRandom);
+assert.deepEqual(exhaustedCategoryTeam.map(({ id }) => id), ["heavy-only", "reserve-3", "reserve-1"]);
+assert.deepEqual(exhaustedCategoryTeam.map(({ categoryId }) => categoryId), ["heavy", "reserve", "reserve"]);
+assert.equal(exhaustedCategoryRandom.calls(), 6, "An exhausted category must be removed instead of rerolled");
+
+const globallyShared = draftFighter("globally-shared");
+const globallyUniqueTeam = draftAutomatedTeam([
+  { id: "left", label: "LEFT", weight: 0.5, roster: [globallyShared, draftFighter("left-only")] },
+  { id: "right", label: "RIGHT", weight: 0.5, roster: [globallyShared, draftFighter("right-1"), draftFighter("right-2")] },
+], new Set(), sequenceRandom([0, 0, 0.9, 0, 0.9, 0.9]));
+assert.deepEqual(globallyUniqueTeam.map(({ id }) => id), ["globally-shared", "right-1", "right-2"]);
+assert.equal(new Set(globallyUniqueTeam.map(({ id }) => id)).size, 3, "IDs shared across rosters must not be drawn twice");
+
+const threeFighterCategory = [{
+  id: "valid",
+  label: "VALID",
+  weight: 1,
+  roster: [draftFighter("valid-1"), draftFighter("valid-2"), draftFighter("valid-3")],
+}];
+assert.throws(() => draftAutomatedTeam(), /Categories must be a non-empty array/);
+assert.throws(() => draftAutomatedTeam([], new Set(), () => 0), /Categories must be a non-empty array/);
+assert.throws(() => draftAutomatedTeam(threeFighterCategory, [], () => 0), /used fighter ids.*Set/i);
+assert.throws(() => draftAutomatedTeam(threeFighterCategory, new Set([""]), () => 0), /non-empty string/);
+assert.throws(() => draftAutomatedTeam(threeFighterCategory, new Set(), 0), /RNG must be a function/);
+assert.throws(() => draftAutomatedTeam(threeFighterCategory, new Set(), () => NaN), /RNG must return a finite number/);
+assert.throws(() => draftAutomatedTeam([null], new Set(), () => 0), /must be an object/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "same", label: "ONE", weight: 1, roster: [] },
+  { id: "same", label: "TWO", weight: 1, roster: [] },
+], new Set(), () => 0), /Duplicate category id/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "bad-weight", label: "BAD", weight: -1, roster: [] },
+], new Set(), () => 0), /finite, non-negative weight/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "bad-roster", label: "BAD", weight: 1, roster: null },
+], new Set(), () => 0), /roster array/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "bad-fighter", label: "BAD", weight: 1, roster: [{}] },
+], new Set(), () => 0), /non-empty id/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "too-small", label: "SMALL", weight: 1, roster: [draftFighter("only-1"), draftFighter("only-2")] },
+], new Set(), () => 0), /requires at least 3 unused fighters/);
+assert.throws(() => draftAutomatedTeam([
+  { id: "zero", label: "ZERO", weight: 0, roster: [draftFighter("zero-1"), draftFighter("zero-2"), draftFighter("zero-3")] },
+], new Set(), () => 0), /requires at least 3 unused fighters/);
+
+const usedDuringFailure = new Set(["human-pick"]);
+assert.throws(
+  () => draftAutomatedTeam(threeFighterCategory, usedDuringFailure, sequenceRandom([0, 0, NaN])),
+  /RNG must return a finite number/,
+);
+assert.deepEqual([...usedDuringFailure], ["human-pick"], "A mid-draft error must not mutate the caller's Set");
 
 assert.equal(formatPower("1500000000"), "1.5B");
 assert.equal(formatPower("1.5e9"), "1.5B");

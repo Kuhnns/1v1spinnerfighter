@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Draft six legendary fighters, pass the device, and settle a cinematic winner-stays-on 3v3 power clash."
+      content="Choose Pass & Play, challenge the bot, or join a live online lobby for a cinematic winner-stays-on 3v3 fighter clash."
     />
     <meta name="theme-color" content="#08090c" />
     <meta property="og:title" content="1v1 Spinner Fighter" />
-    <meta property="og:description" content="Spin your three. Pass the device. Clash." />
+    <meta property="og:description" content="Spin your three. Face a friend, a bot, or an online rival. Clash." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://kuhnns.github.io/1v1spinnerfighter/" />
     <meta property="og:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
@@ -18,9 +18,9 @@
     <meta property="og:image:alt" content="1v1 Spinner Fighter — Spin your three. Pass the device. Clash." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
-    <title>1v1 Spinner Fighter — Pass &amp; Play</title>
-    <link rel="stylesheet" href="styles.css?v=20260809-3" />
-    <script type="module" src="script.js?v=20260809-3"></script>
+    <title>1v1 Spinner Fighter — Local, Bot &amp; Online</title>
+    <link rel="stylesheet" href="styles.css?v=20260809-4" />
+    <script type="module" src="script.js?v=20260809-4"></script>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -31,7 +31,7 @@
         <span><b>1V1</b> SPINNER FIGHTER</span>
       </a>
       <div class="topbar-actions">
-        <span class="device-pill">PASS &amp; PLAY</span>
+        <span class="device-pill" id="mode-pill">CHOOSE MODE</span>
         <button class="icon-button" id="sound-toggle" type="button" aria-pressed="true" aria-label="Mute sound">
           <span aria-hidden="true">SFX</span>
         </button>
@@ -41,16 +41,33 @@
     <main class="app-shell">
       <section class="screen start-screen is-active" id="start-screen" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="kicker">THE SAME-DEVICE MULTIVERSE DRAFT</p>
+          <p class="kicker">CHOOSE YOUR MULTIVERSE BATTLE</p>
           <h1 id="hero-title">SPIN YOUR THREE.<br /><span>SETTLE THE IMPOSSIBLE.</span></h1>
           <p class="hero-deck">
-            Two players secretly summon three fighters each, then reveal power-ranked squads for a winner-stays-on 3v3 endurance clash.
+            Draft three legendary fighters, then face a friend beside you, an instant bot rival, or another player online.
           </p>
-          <div class="hero-actions">
-            <button class="primary-button hero-button" id="start-game" type="button">
-              START THE DRAFT <span aria-hidden="true">↗</span>
-            </button>
-            <span class="microcopy">2 players · 1 device · about 3 minutes</span>
+          <div class="mode-picker" role="group" aria-labelledby="mode-picker-title">
+            <p class="mode-picker-label" id="mode-picker-title">SELECT BATTLE MODE</p>
+            <div class="mode-grid">
+              <button class="mode-card mode-card-primary" id="start-game" type="button">
+                <span class="mode-card-top"><b>ORIGINAL MODE</b><i>LOCAL</i></span>
+                <strong>PASS &amp; PLAY</strong>
+                <small>Two players draft privately on one device.</small>
+                <span class="mode-card-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="mode-card" id="start-bot" type="button">
+                <span class="mode-card-top"><b>SOLO MODE</b><i>BOT</i></span>
+                <strong>PLAY WITH BOT</strong>
+                <small>Build your squad against an instant rival.</small>
+                <span class="mode-card-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="mode-card" id="open-online" type="button">
+                <span class="mode-card-top"><b>REMOTE MODE</b><i>ONLINE</i></span>
+                <strong>ONLINE</strong>
+                <small>Browse, create, or join a public lobby.</small>
+                <span class="mode-card-arrow" aria-hidden="true">↗</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -77,14 +94,80 @@
         </div>
       </section>
 
+      <section class="screen online-screen" id="online-screen" aria-labelledby="online-title" hidden>
+        <div class="screen-heading online-heading">
+          <div>
+            <p class="kicker">REMOTE MODE · PUBLIC MATCHMAKING</p>
+            <h2 id="online-title">ONLINE ARENA</h2>
+          </div>
+          <button class="text-button online-back" id="online-back" type="button"><span aria-hidden="true">←</span> BACK TO MODES</button>
+        </div>
+
+        <div class="online-browser-panel" id="online-browser-panel">
+          <section class="online-entry-card" aria-labelledby="online-entry-title">
+            <p class="panel-label" id="online-entry-title">ENTER THE NETWORK</p>
+            <div class="field-group">
+              <label for="online-name">DISPLAY NAME</label>
+              <input id="online-name" name="online-name" type="text" maxlength="18" autocomplete="nickname" spellcheck="false" aria-describedby="online-status" placeholder="Your fighter name" />
+            </div>
+            <button class="primary-button online-create-button" id="create-lobby" type="button">CREATE PUBLIC LOBBY <span aria-hidden="true">↗</span></button>
+            <div class="online-divider" aria-hidden="true"><span>OR JOIN BY CODE</span></div>
+            <form class="join-form" id="join-lobby-form">
+              <label for="join-code">SIX-CHARACTER LOBBY CODE</label>
+              <div class="join-form-row">
+                <input id="join-code" name="join-code" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" aria-invalid="false" aria-describedby="online-status" placeholder="ABC123" />
+                <button class="secondary-button" id="join-lobby" type="button">JOIN</button>
+              </div>
+            </form>
+            <p class="online-status" id="online-status" role="status" aria-live="polite" aria-atomic="true">Choose a public room or create your own.</p>
+          </section>
+
+          <section class="lobby-browser" aria-labelledby="lobby-browser-title">
+            <div class="lobby-browser-heading">
+              <div>
+                <p class="panel-label">LIVE DIRECTORY</p>
+                <h3 id="lobby-browser-title">OPEN LOBBIES</h3>
+              </div>
+              <button class="text-button lobby-refresh" id="refresh-lobbies" type="button"><span aria-hidden="true">↻</span> REFRESH</button>
+            </div>
+            <ul class="lobby-list" id="lobby-list" aria-label="Public lobbies">
+              <li class="lobby-empty">
+                <span aria-hidden="true">◎</span>
+                <b>SCANNING FOR RIVALS</b>
+                <small>Open rooms will appear here.</small>
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <section class="online-room-panel" id="online-room-panel" aria-labelledby="online-room-title" hidden>
+          <div class="online-room-signal" aria-hidden="true"><span></span><i></i><b>2P</b></div>
+          <p class="kicker">ONLINE ROOM · SECURE LIVE LINK</p>
+          <h2 id="online-room-title" tabindex="-1">YOUR ROOM IS LIVE.</h2>
+          <p id="online-room-copy">Share this code or wait for someone to join from the public lobby browser.</p>
+          <div class="online-room-code-wrap">
+            <span>LOBBY CODE</span>
+            <div>
+              <code id="online-room-code">------</code>
+              <button class="secondary-button" id="copy-lobby-code" type="button">COPY CODE</button>
+            </div>
+          </div>
+          <div class="online-room-state"><span aria-hidden="true"></span> REALTIME LINK ACTIVE</div>
+          <button class="text-button online-leave" id="leave-lobby" type="button">LEAVE LOBBY</button>
+        </section>
+      </section>
+
       <section class="screen draft-screen" id="draft-screen" aria-labelledby="draft-title" hidden>
         <div class="screen-heading draft-heading">
           <div>
             <p class="kicker" id="draft-overline">PLAYER 1 · PRIVATE DRAFT</p>
             <h2 id="draft-title">SUMMON FIGHTER <span id="pick-number">01</span></h2>
           </div>
-          <div class="pick-pips" id="pick-pips" aria-label="Draft progress">
-            <span class="is-current"></span><span></span><span></span>
+          <div class="draft-heading-actions">
+            <button class="text-button" id="draft-leave-online" type="button" hidden>LEAVE ONLINE MATCH</button>
+            <div class="pick-pips" id="pick-pips" aria-label="Draft progress">
+              <span class="is-current"></span><span></span><span></span>
+            </div>
           </div>
         </div>
 
@@ -148,6 +231,34 @@
         </div>
       </section>
 
+      <section class="screen bot-draft-screen" id="bot-draft-screen" aria-labelledby="bot-draft-title" hidden>
+        <div class="bot-draft-heading">
+          <p class="kicker">SOLO MODE · ENCRYPTED OPPONENT DRAFT</p>
+          <h2 id="bot-draft-title">THE BOT IS SUMMONING.</h2>
+          <p id="bot-draft-status" role="status" aria-live="polite" aria-atomic="true">Three power signatures are entering the arena.</p>
+        </div>
+        <div class="bot-draft-grid" id="bot-draft-grid" aria-label="Bot squad draft">
+          <div class="bot-draft-slot" data-bot-slot>
+            <div class="bot-slot-shell" aria-hidden="true"><span>01</span><b>SCANNING</b><i></i></div>
+          </div>
+          <div class="bot-draft-slot" data-bot-slot>
+            <div class="bot-slot-shell" aria-hidden="true"><span>02</span><b>SCANNING</b><i></i></div>
+          </div>
+          <div class="bot-draft-slot" data-bot-slot>
+            <div class="bot-slot-shell" aria-hidden="true"><span>03</span><b>SCANNING</b><i></i></div>
+          </div>
+        </div>
+        <button class="primary-button bot-reveal-action" id="bot-reveal-action" type="button" hidden>REVEAL THE MATCHUP</button>
+      </section>
+
+      <section class="screen online-wait-screen" id="online-wait-screen" aria-labelledby="online-wait-title" hidden>
+        <div class="online-wait-signal" aria-hidden="true"><span></span><i></i><b>VS</b></div>
+        <p class="kicker" id="online-wait-kicker">YOUR SQUAD IS LOCKED</p>
+        <h2 id="online-wait-title">WAITING FOR YOUR RIVAL.</h2>
+        <p id="online-wait-copy" role="status" aria-live="polite" aria-atomic="true">Your picks are sealed. The matchup will reveal when both squads are ready.</p>
+        <button class="text-button online-leave" id="online-leave-match" type="button">LEAVE MATCH</button>
+      </section>
+
       <section class="screen handoff-screen" id="handoff-screen" aria-labelledby="handoff-title" hidden>
         <div class="handoff-lock" aria-hidden="true"><span></span></div>
         <p class="kicker" id="handoff-kicker">PLAYER 1 SQUAD LOCKED</p>
@@ -167,12 +278,12 @@
         </div>
         <div class="lineup-versus">
           <div class="lineup-side player-one-side">
-            <div class="lineup-title"><span>PLAYER 1</span><b id="p1-total">—</b></div>
+            <div class="lineup-title"><span id="side-one-label">PLAYER 1</span><b id="p1-total">—</b></div>
             <div class="lineup-list" id="p1-lineup"></div>
           </div>
           <div class="lineup-divider"><span>VS</span></div>
           <div class="lineup-side player-two-side">
-            <div class="lineup-title"><span>PLAYER 2</span><b id="p2-total">—</b></div>
+            <div class="lineup-title"><span id="side-two-label">PLAYER 2</span><b id="p2-total">—</b></div>
             <div class="lineup-list" id="p2-lineup"></div>
           </div>
         </div>
@@ -184,9 +295,9 @@
 
       <section class="screen battle-screen" id="battle-screen" aria-labelledby="battle-title" hidden>
         <div class="battle-topline">
-          <div><span>PLAYER 1 LEFT</span><b id="battle-score-one">3</b></div>
+          <div><span id="battle-side-one-label">PLAYER 1 LEFT</span><b id="battle-score-one">3</b></div>
           <p id="battle-title">CLASH <b id="clash-number">01</b> <span id="clash-total">/ 03</span></p>
-          <div><b id="battle-score-two">3</b><span>PLAYER 2 LEFT</span></div>
+          <div><b id="battle-score-two">3</b><span id="battle-side-two-label">PLAYER 2 LEFT</span></div>
         </div>
         <div class="clash-arena" id="clash-arena">
           <div class="clash-energy energy-one" aria-hidden="true"></div>
@@ -215,6 +326,7 @@
         <div class="result-actions">
           <button class="primary-button" id="reset-game" type="button">RESET &amp; SPIN AGAIN</button>
           <button class="secondary-button" id="review-lineups" type="button">REVIEW LINEUPS</button>
+          <button class="secondary-button" id="change-mode" type="button">CHANGE MODE</button>
         </div>
       </section>
     </main>

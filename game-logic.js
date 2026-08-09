@@ -365,6 +365,126 @@ export function resolveBattle(teamOne, teamTwo) {
   };
 }
 
+const AUTOMATED_TEAM_SIZE = 3;
+
+function validateDraftCategories(categories) {
+  if (!Array.isArray(categories) || categories.length === 0) {
+    throw new TypeError("Categories must be a non-empty array.");
+  }
+
+  const categoryIds = new Set();
+  categories.forEach((category, categoryIndex) => {
+    if (!category || typeof category !== "object") {
+      throw new TypeError(`Category at index ${categoryIndex} must be an object.`);
+    }
+    if (typeof category.id !== "string" || !category.id.trim()) {
+      throw new TypeError(`Category at index ${categoryIndex} must have a non-empty id.`);
+    }
+    if (categoryIds.has(category.id)) throw new TypeError(`Duplicate category id: ${category.id}`);
+    categoryIds.add(category.id);
+    if (typeof category.label !== "string" || !category.label.trim()) {
+      throw new TypeError(`Category ${category.id} must have a non-empty label.`);
+    }
+    if (typeof category.weight !== "number" || !Number.isFinite(category.weight) || category.weight < 0) {
+      throw new TypeError(`Category ${category.id} must have a finite, non-negative weight.`);
+    }
+    if (!Array.isArray(category.roster)) throw new TypeError(`Category ${category.id} must have a roster array.`);
+    category.roster.forEach((fighter, fighterIndex) => {
+      if (!fighter || typeof fighter !== "object") {
+        throw new TypeError(`Fighter at ${category.id}[${fighterIndex}] must be an object.`);
+      }
+      if (typeof fighter.id !== "string" || !fighter.id.trim()) {
+        throw new TypeError(`Fighter at ${category.id}[${fighterIndex}] must have a non-empty id.`);
+      }
+    });
+  });
+}
+
+function validateUsedIds(usedIds) {
+  if (!(usedIds instanceof Set)) throw new TypeError("Used fighter ids must be provided as a Set.");
+  usedIds.forEach((id) => {
+    if (typeof id !== "string" || !id.trim()) throw new TypeError("Every used fighter id must be a non-empty string.");
+  });
+}
+
+function nextDraftUnit(random) {
+  const unit = random();
+  if (typeof unit !== "number" || !Number.isFinite(unit)) {
+    throw new TypeError("The automated-draft RNG must return a finite number.");
+  }
+  return Math.min(Math.max(unit, 0), 0.999999999999);
+}
+
+function unusedUniqueRoster(roster, usedIds) {
+  const seen = new Set();
+  return roster.filter((fighter) => {
+    if (usedIds.has(fighter.id) || seen.has(fighter.id)) return false;
+    seen.add(fighter.id);
+    return true;
+  });
+}
+
+/**
+ * Draw exactly three weighted fighters for an automated opponent.
+ *
+ * Exhausted categories are removed and the remaining positive weights are
+ * renormalized for each pick. The injected RNG is called exactly twice per pick:
+ * once for its category and once for its fighter. The supplied used-id Set and
+ * all category/roster records remain untouched.
+ */
+export function draftAutomatedTeam(categories, usedIds = new Set(), random = Math.random) {
+  validateDraftCategories(categories);
+  validateUsedIds(usedIds);
+  if (typeof random !== "function") throw new TypeError("The automated-draft RNG must be a function.");
+
+  const locallyUsed = new Set(usedIds);
+  const selectableIds = new Set();
+  categories.forEach((category) => {
+    if (category.weight <= 0) return;
+    category.roster.forEach((fighter) => {
+      if (!locallyUsed.has(fighter.id)) selectableIds.add(fighter.id);
+    });
+  });
+  if (selectableIds.size < AUTOMATED_TEAM_SIZE) {
+    throw new RangeError(`Automated draft requires at least ${AUTOMATED_TEAM_SIZE} unused fighters in positive-weight categories.`);
+  }
+
+  const team = [];
+  while (team.length < AUTOMATED_TEAM_SIZE) {
+    const eligible = categories
+      .map((category) => ({
+        category,
+        roster: unusedUniqueRoster(category.roster, locallyUsed),
+      }))
+      .filter(({ category, roster }) => category.weight > 0 && roster.length > 0);
+    const totalWeight = eligible.reduce((sum, { category }) => sum + category.weight, 0);
+    if (!eligible.length || !Number.isFinite(totalWeight) || totalWeight <= 0) {
+      throw new RangeError("Automated draft ran out of selectable weighted fighters.");
+    }
+
+    const categoryTarget = nextDraftUnit(random) * totalWeight;
+    let cursor = 0;
+    let selected = eligible[eligible.length - 1];
+    for (const option of eligible) {
+      cursor += option.category.weight;
+      if (categoryTarget < cursor) {
+        selected = option;
+        break;
+      }
+    }
+
+    const fighter = selected.roster[randomIndex(selected.roster.length, nextDraftUnit(random))];
+    locallyUsed.add(fighter.id);
+    team.push({
+      ...fighter,
+      categoryId: selected.category.id,
+      categoryLabel: selected.category.label,
+    });
+  }
+
+  return team;
+}
+
 export function chooseWeighted(items, unit = Math.random()) {
   const clamped = Math.min(Math.max(unit, 0), 0.999999999999);
   let cursor = 0;

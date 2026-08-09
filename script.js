@@ -1,10 +1,11 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-3";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-3";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-3";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-3";
+import { animeCharacters } from "./data/anime.js?v=20260809-4";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-4";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-4";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-4";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
+  draftAutomatedTeam,
   formatHealth,
   formatPower,
   powerScore,
@@ -12,7 +13,13 @@ import {
   powerToHealth,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-3";
+} from "./game-logic.js?v=20260809-4";
+import {
+  formatLobbyCodeInput,
+  OnlineLobbyNetwork,
+  normalizeLobbyCode,
+  sanitizePlayerName,
+} from "./online-network.js?v=20260809-4";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -29,8 +36,12 @@ const categories = [
 
 const screens = $$(".screen");
 const startGameButton = $("#start-game");
+const startBotButton = $("#start-bot");
+const openOnlineButton = $("#open-online");
+const modePill = $("#mode-pill");
 const soundToggle = $("#sound-toggle");
 const draftOverline = $("#draft-overline");
+const draftLeaveOnline = $("#draft-leave-online");
 const pickNumber = $("#pick-number");
 const pickPips = $("#pick-pips");
 const lockedList = $("#locked-list");
@@ -50,13 +61,41 @@ const handoffKicker = $("#handoff-kicker");
 const handoffTitle = $("#handoff-title");
 const handoffCopy = $("#handoff-copy");
 const handoffAction = $("#handoff-action");
+const botDraftScreen = $("#bot-draft-screen");
+const botDraftStatus = $("#bot-draft-status");
+const botDraftGrid = $("#bot-draft-grid");
+const botRevealAction = $("#bot-reveal-action");
+const onlineScreen = $("#online-screen");
+const onlineBrowserPanel = $("#online-browser-panel");
+const onlineRoomPanel = $("#online-room-panel");
+const onlineBack = $("#online-back");
+const onlineName = $("#online-name");
+const createLobbyButton = $("#create-lobby");
+const joinCode = $("#join-code");
+const joinLobbyButton = $("#join-lobby");
+const refreshLobbiesButton = $("#refresh-lobbies");
+const onlineStatus = $("#online-status");
+const lobbyList = $("#lobby-list");
+const onlineRoomCode = $("#online-room-code");
+const onlineRoomTitle = $("#online-room-title");
+const onlineRoomCopy = $("#online-room-copy");
+const copyLobbyCode = $("#copy-lobby-code");
+const leaveLobbyButton = $("#leave-lobby");
+const onlineWaitKicker = $("#online-wait-kicker");
+const onlineWaitTitle = $("#online-wait-title");
+const onlineWaitCopy = $("#online-wait-copy");
+const onlineLeaveMatch = $("#online-leave-match");
 const p1Lineup = $("#p1-lineup");
 const p2Lineup = $("#p2-lineup");
 const p1Total = $("#p1-total");
 const p2Total = $("#p2-total");
+const sideOneLabel = $("#side-one-label");
+const sideTwoLabel = $("#side-two-label");
 const beginBattle = $("#begin-battle");
 const battleScoreOne = $("#battle-score-one");
 const battleScoreTwo = $("#battle-score-two");
+const battleSideOneLabel = $("#battle-side-one-label");
+const battleSideTwoLabel = $("#battle-side-two-label");
 const clashNumber = $("#clash-number");
 const clashTotal = $("#clash-total");
 const clashArena = $("#clash-arena");
@@ -73,6 +112,7 @@ const resultCopy = $("#result-copy");
 const resultGrid = $("#result-grid");
 const resetGameButton = $("#reset-game");
 const reviewLineups = $("#review-lineups");
+const changeModeButton = $("#change-mode");
 const toast = $("#toast");
 
 const tierColors = {
@@ -94,6 +134,7 @@ const severityCopy = Object.freeze({
 });
 
 const state = {
+  mode: "pass",
   activePlayer: 0,
   teams: [[], []],
   used: new Set(),
@@ -105,7 +146,19 @@ const state = {
   handoffMode: "player-two",
   battle: null,
   battleToken: 0,
+  flowToken: 0,
+  onlineRole: null,
+  localPlayerIndex: 0,
+  playerNames: ["PLAYER 1", "PLAYER 2"],
 };
+
+const fighterById = new Map(categories.flatMap((category) => category.roster.map((fighter) => [
+  fighter.id,
+  { ...fighter, categoryId: category.id, categoryLabel: category.label },
+])));
+let onlineNetwork = null;
+let onlineNetworkName = "";
+let pendingOnlineTeamIds = null;
 
 class SoundEngine {
   constructor() {
@@ -188,6 +241,26 @@ class SoundEngine {
   arcade() {
     [392, 523, 659, 784, 1047].forEach((note, index) => {
       this.tone(note, 0.09, { delay: index * 0.055, type: "square", volume: 0.018, endFrequency: note * 1.04 });
+    });
+  }
+
+  botDraft() {
+    [0, 0.07, 0.14].forEach((laneDelay, lane) => {
+      for (let index = 0; index < 7; index += 1) {
+        const note = 155 + lane * 72 + index * 31;
+        this.tone(note, 0.07, {
+          delay: laneDelay + index * 0.085,
+          type: lane % 2 ? "square" : "triangle",
+          volume: 0.012,
+          endFrequency: note * 1.08,
+        });
+      }
+    });
+  }
+
+  onlineConnect() {
+    [294, 440, 659].forEach((note, index) => {
+      this.tone(note, 0.18, { delay: index * 0.075, type: "sine", volume: 0.022, endFrequency: note * 1.08 });
     });
   }
 
@@ -333,6 +406,22 @@ function saveSoundPreference() {
   }
 }
 
+function readOnlineName() {
+  try {
+    return sanitizePlayerName(localStorage.getItem("spinner-fighter-online-name") || "");
+  } catch {
+    return "";
+  }
+}
+
+function saveOnlineName(name) {
+  try {
+    localStorage.setItem("spinner-fighter-online-name", name);
+  } catch {
+    // The online session can continue when persistent storage is unavailable.
+  }
+}
+
 function randomUnit() {
   if (window.crypto?.getRandomValues) {
     const value = new Uint32Array(1);
@@ -340,6 +429,10 @@ function randomUnit() {
     return value[0] / 4294967296;
   }
   return Math.random();
+}
+
+function defaultOnlineName() {
+  return `PLAYER ${String(Math.floor(randomUnit() * 9000) + 1000)}`;
 }
 
 function motionTime(standard, minimal = 35) {
@@ -412,6 +505,48 @@ function updateSoundButton() {
   soundToggle.setAttribute("aria-pressed", String(sound.enabled));
   soundToggle.setAttribute("aria-label", sound.enabled ? "Mute sound" : "Turn on sound");
   soundToggle.firstElementChild.textContent = sound.enabled ? "SFX" : "OFF";
+}
+
+function sideName(index) {
+  if (state.mode === "bot") return index === 0 ? "PLAYER 1" : "BOT";
+  if (state.mode === "online") return state.playerNames[index] || `PLAYER ${index + 1}`;
+  return `PLAYER ${index + 1}`;
+}
+
+function resultWinnerName(winner) {
+  if (state.mode === "pass") return `PLAYER ${winner}`;
+  if (state.mode === "bot") return winner === 1 ? "PLAYER 1" : "BOT";
+  return winner - 1 === state.localPlayerIndex ? "YOU" : sideName(winner - 1).toUpperCase();
+}
+
+function updateModeChrome() {
+  const modeCopy = {
+    pass: "PASS & PLAY",
+    bot: "VS BOT",
+    online: "ONLINE",
+  };
+  modePill.textContent = modeCopy[state.mode] || "CHOOSE MODE";
+  sideOneLabel.textContent = sideName(0);
+  sideTwoLabel.textContent = sideName(1);
+  battleSideOneLabel.textContent = `${sideName(0)} LEFT`;
+  battleSideTwoLabel.textContent = `${sideName(1)} LEFT`;
+  resetGameButton.textContent = state.mode === "online"
+    ? "RETURN TO LOBBIES"
+    : state.mode === "bot"
+      ? "PLAY BOT AGAIN"
+      : "RESET & SPIN AGAIN";
+}
+
+function setOnlineStatus(message, stateName = "") {
+  onlineStatus.textContent = message;
+  if (stateName) onlineStatus.dataset.state = stateName;
+  else delete onlineStatus.dataset.state;
+}
+
+function canonicalTeam(ids) {
+  if (!Array.isArray(ids) || ids.length !== 3 || new Set(ids).size !== 3) return null;
+  const team = ids.map((id) => fighterById.get(id));
+  return team.every(Boolean) ? team.map((fighter) => ({ ...fighter })) : null;
 }
 
 function characterImageKey(character) {
@@ -879,20 +1014,32 @@ function resetState() {
   state.handoffMode = "player-two";
   state.battle = null;
   state.battleToken += 1;
+  state.flowToken += 1;
 }
 
-function startNewGame() {
+function startNewGame(mode = state.mode) {
+  if (mode !== "pass" && mode !== "bot") mode = "pass";
   sound.stopAll();
   sound.arm();
   sound.tap();
+  state.mode = mode;
+  state.onlineRole = null;
+  state.localPlayerIndex = 0;
+  state.playerNames = ["PLAYER 1", mode === "bot" ? "BOT" : "PLAYER 2"];
   resetState();
+  updateModeChrome();
   renderDraft();
   showScreen("draft-screen");
 }
 
 function renderDraft() {
   const team = state.teams[state.activePlayer];
-  draftOverline.textContent = `PLAYER ${state.activePlayer + 1} · PRIVATE DRAFT`;
+  draftLeaveOnline.hidden = state.mode !== "online";
+  draftOverline.textContent = state.mode === "pass"
+    ? `PLAYER ${state.activePlayer + 1} · PRIVATE DRAFT`
+    : state.mode === "online"
+      ? `YOU · ONLINE PRIVATE DRAFT`
+      : "YOU · PRIVATE DRAFT";
   pickNumber.textContent = `0${team.length + 1}`;
   $$("span", pickPips).forEach((pip, index) => {
     pip.classList.toggle("is-complete", index < team.length);
@@ -904,6 +1051,12 @@ function renderDraft() {
     lockedList.append(team[index] ? lockedPickCard(team[index]) : emptyPick(index + 1));
   }
   resetSpinStage();
+}
+
+function draftCardNumber() {
+  const pick = state.teams[state.activePlayer].length + 1;
+  if (state.mode === "pass") return `P${state.activePlayer + 1} · 0${pick}`;
+  return `YOU · 0${pick}`;
 }
 
 function resetSpinStage() {
@@ -926,6 +1079,7 @@ function resetSpinStage() {
 
 async function spinCategory() {
   if (state.busy || state.phase !== "category") return;
+  const token = state.flowToken;
   state.busy = true;
   spinAction.disabled = true;
   spinResult.textContent = "Universes colliding…";
@@ -941,6 +1095,7 @@ async function spinCategory() {
   wheelStage.classList.add("is-spinning");
 
   await wait(motionTime(2280, 80));
+  if (token !== state.flowToken) return;
   wheelStage.classList.remove("is-spinning");
   state.phase = "character";
   state.busy = false;
@@ -956,6 +1111,7 @@ async function spinCategory() {
 
 async function spinCharacter() {
   if (state.busy || state.phase !== "character" || !state.selectedCategory) return;
+  const token = state.flowToken;
   state.busy = true;
   spinAction.disabled = true;
   wheelStage.hidden = true;
@@ -972,7 +1128,12 @@ async function spinCharacter() {
   spinResult.textContent = "Scanning strongest known forms…";
 
   let tick = 0;
+  let interval = null;
   const cycle = () => {
+    if (token !== state.flowToken) {
+      if (interval) window.clearInterval(interval);
+      return;
+    }
     const preview = pool[randomIndex(pool.length, randomUnit())];
     reelName.textContent = preview.name.toUpperCase();
     reelForm.textContent = preview.form;
@@ -980,14 +1141,15 @@ async function spinCharacter() {
     tick += 1;
   };
   cycle();
-  const interval = window.setInterval(cycle, motionTime(72, 20));
+  interval = window.setInterval(cycle, motionTime(72, 20));
   await wait(motionTime(1740, 90));
   window.clearInterval(interval);
+  if (token !== state.flowToken) return;
 
   reelStage.hidden = true;
   revealStage.hidden = false;
   try {
-    draftCardMount.replaceChildren(fighterCard(state.selectedCharacter, `P${state.activePlayer + 1} · 0${state.teams[state.activePlayer].length + 1}`));
+    draftCardMount.replaceChildren(fighterCard(state.selectedCharacter, draftCardNumber()));
   } catch (error) {
     console.error("Fighter card rendering fell back to the compatibility layout.", error);
     draftCardMount.replaceChildren(emergencyRevealCard(state.selectedCharacter));
@@ -1005,6 +1167,7 @@ async function spinCharacter() {
 
 async function lockCharacter() {
   if (state.busy || state.phase !== "lock" || !state.selectedCharacter) return;
+  const token = state.flowToken;
   state.busy = true;
   spinAction.disabled = true;
   sound.lock(state.selectedCharacter.power);
@@ -1014,9 +1177,18 @@ async function lockCharacter() {
   renderLockedOnly();
   spinResult.textContent = `${state.selectedCharacter.name} locked into slot ${team.length}.`;
   await wait(motionTime(520, 40));
+  if (token !== state.flowToken) return;
 
   if (team.length < 3) {
     renderDraft();
+    return;
+  }
+  if (state.mode === "bot") {
+    await runBotDraft();
+    return;
+  }
+  if (state.mode === "online") {
+    await finishOnlineDraft();
     return;
   }
   showHandoff();
@@ -1032,6 +1204,389 @@ function renderLockedOnly() {
     pip.classList.toggle("is-complete", index < team.length);
     pip.classList.toggle("is-current", index === team.length && team.length < 3);
   });
+}
+
+function createBotReel(index) {
+  const reel = document.createElement("div");
+  reel.className = "bot-reel";
+  const slot = document.createElement("span");
+  slot.textContent = `BOT SLOT 0${index + 1}`;
+  const category = document.createElement("strong");
+  category.dataset.botCategory = "";
+  category.textContent = "SCANNING UNIVERSES";
+  const fighter = document.createElement("small");
+  fighter.dataset.botFighter = "";
+  fighter.textContent = "POWER SIGNATURE SEARCHING…";
+  reel.append(slot, category, fighter);
+  return reel;
+}
+
+function updateBotReels(slots, tick) {
+  slots.forEach((slot, index) => {
+    const category = categories[(tick + index * 2) % categories.length];
+    const preview = category.roster[(tick * 7 + index * 19) % category.roster.length];
+    $("[data-bot-category]", slot).textContent = category.label;
+    $("[data-bot-fighter]", slot).textContent = preview.name.toUpperCase();
+  });
+  sound.reelTick(tick);
+}
+
+async function runBotDraft() {
+  const token = ++state.flowToken;
+  state.phase = "bot-draft";
+  state.busy = true;
+  const botTeam = draftAutomatedTeam(categories, state.used, randomUnit);
+  const slots = $$('[data-bot-slot]', botDraftGrid);
+  slots.forEach((slot, index) => slot.replaceChildren(createBotReel(index)));
+  botDraftStatus.textContent = "Three weighted universes are spinning at once…";
+  botRevealAction.hidden = true;
+  botDraftScreen.classList.remove("is-revealed");
+  botDraftScreen.classList.add("is-spinning");
+  showScreen("bot-draft-screen");
+  sound.botDraft();
+
+  let tick = 0;
+  updateBotReels(slots, tick);
+  const interval = window.setInterval(() => {
+    tick += 1;
+    updateBotReels(slots, tick);
+  }, motionTime(92, 24));
+  await wait(motionTime(2100, 110));
+  window.clearInterval(interval);
+  if (token !== state.flowToken) return;
+
+  state.teams[1] = botTeam;
+  botTeam.forEach((fighter) => state.used.add(fighter.id));
+  slots.forEach((slot, index) => slot.replaceChildren(fighterCard(botTeam[index], `BOT · 0${index + 1}`)));
+  botDraftScreen.classList.remove("is-spinning");
+  botDraftScreen.classList.add("is-revealed");
+  botDraftStatus.textContent = "The bot locked all three fighters. Your matchup is ready.";
+  botRevealAction.hidden = false;
+  state.phase = "bot-ready";
+  state.busy = false;
+  const strongest = botTeam.reduce((best, fighter) => (
+    powerScore(fighter.power) > powerScore(best.power) ? fighter : best
+  ));
+  sound.reveal(strongest.power);
+  focusWithoutScroll(botRevealAction);
+}
+
+function onlineMessage(detail, fallback) {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && typeof detail.message === "string" && detail.message.trim()) return detail.message;
+  return fallback;
+}
+
+function renderLobbyBrowser(lobbies = []) {
+  lobbyList.replaceChildren();
+  if (!lobbies.length) {
+    const empty = document.createElement("li");
+    empty.className = "lobby-empty";
+    empty.textContent = "No open lobbies yet. Create one and become the first challenger.";
+    lobbyList.append(empty);
+    return;
+  }
+
+  lobbies.forEach((lobby) => {
+    const row = document.createElement("li");
+    row.className = "lobby-row";
+    const copy = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = lobby.hostName;
+    const meta = document.createElement("span");
+    meta.textContent = `${lobby.code} · 1 / 2 PLAYERS`;
+    copy.append(name, meta);
+    const join = document.createElement("button");
+    join.className = "secondary-button lobby-join";
+    join.type = "button";
+    join.textContent = "JOIN";
+    join.setAttribute("aria-label", `Join ${lobby.hostName}'s lobby ${lobby.code}`);
+    join.addEventListener("click", () => joinOnlineLobby(lobby.code));
+    row.append(copy, join);
+    lobbyList.append(row);
+  });
+}
+
+function setOnlineControlsBusy(busy) {
+  createLobbyButton.disabled = busy;
+  joinLobbyButton.disabled = busy;
+  refreshLobbiesButton.disabled = busy;
+  onlineBrowserPanel.setAttribute("aria-busy", String(busy));
+}
+
+function currentOnlineName() {
+  const cleaned = sanitizePlayerName(onlineName.value) || defaultOnlineName();
+  onlineName.value = cleaned;
+  saveOnlineName(cleaned);
+  return cleaned;
+}
+
+function bindOnlineNetwork(network) {
+  network.addEventListener("lobbies", (event) => {
+    if (onlineNetwork !== network) return;
+    renderLobbyBrowser(event.detail || []);
+    setOnlineControlsBusy(false);
+  });
+  network.addEventListener("status", (event) => {
+    if (onlineNetwork !== network) return;
+    setOnlineStatus(onlineMessage(event.detail, "Online arena updated."));
+  });
+  network.addEventListener("error", (event) => {
+    if (onlineNetwork !== network) return;
+    setOnlineControlsBusy(false);
+    setOnlineStatus(onlineMessage(event.detail, "Online connection failed. Try again."), "error");
+  });
+  network.addEventListener("match", (event) => {
+    if (onlineNetwork !== network) return;
+    beginOnlineMatch(event.detail);
+  });
+  network.addEventListener("team", (event) => {
+    if (onlineNetwork !== network) return;
+    receiveOnlineTeam(event.detail?.ids);
+  });
+  network.addEventListener("peer-left", () => {
+    if (onlineNetwork !== network) return;
+    handleOnlinePeerLeft();
+  });
+}
+
+async function ensureOnlineNetwork({ force = false } = {}) {
+  const playerName = currentOnlineName();
+  if (!force && onlineNetwork && onlineNetworkName === playerName) {
+    await onlineNetwork.openDirectory();
+    return onlineNetwork;
+  }
+  if (onlineNetwork) await onlineNetwork.destroy();
+  const network = new OnlineLobbyNetwork({ playerName });
+  onlineNetwork = network;
+  onlineNetworkName = playerName;
+  bindOnlineNetwork(network);
+  await network.openDirectory();
+  return network;
+}
+
+function showOnlineBrowserPanel() {
+  onlineBrowserPanel.hidden = false;
+  onlineRoomPanel.hidden = true;
+  showScreen("online-screen");
+}
+
+function showOnlineRoom(code, title, copy) {
+  onlineBrowserPanel.hidden = true;
+  onlineRoomPanel.hidden = false;
+  onlineRoomCode.textContent = code;
+  onlineRoomTitle.textContent = title;
+  onlineRoomCopy.textContent = copy;
+  showScreen("online-screen");
+  onlineRoomTitle.tabIndex = -1;
+  focusWithoutScroll(onlineRoomTitle);
+}
+
+async function openOnlineBrowser({ force = false } = {}) {
+  state.flowToken += 1;
+  state.battleToken += 1;
+  state.mode = "online";
+  state.onlineRole = null;
+  pendingOnlineTeamIds = null;
+  updateModeChrome();
+  if (!onlineName.value) onlineName.value = readOnlineName() || defaultOnlineName();
+  renderLobbyBrowser([]);
+  showOnlineBrowserPanel();
+  setOnlineControlsBusy(true);
+  setOnlineStatus("Connecting to the live lobby network…", "loading");
+  try {
+    await ensureOnlineNetwork({ force });
+    setOnlineControlsBusy(false);
+    setOnlineStatus("Live lobbies update automatically. Choose one or create your own.", "ready");
+  } catch (error) {
+    console.error("Online lobby initialization failed.", error);
+    setOnlineControlsBusy(false);
+    setOnlineStatus("Online is temporarily unavailable. Pass & Play and Bot still work.", "error");
+  }
+}
+
+async function createOnlineLobby() {
+  setOnlineControlsBusy(true);
+  setOnlineStatus("Creating your public lobby…", "loading");
+  try {
+    const network = await ensureOnlineNetwork();
+    const code = await network.createLobby();
+    if (!code) throw new Error("Could not create the lobby. Try again.");
+    showOnlineRoom(code, "WAITING FOR A CHALLENGER", "Your lobby is public. Keep this tab open while another player joins.");
+    setOnlineStatus(`Lobby ${code} is live.`, "ready");
+  } catch (error) {
+    console.error("Lobby creation failed.", error);
+    setOnlineStatus(onlineMessage(error, "Could not create the lobby. Try again."), "error");
+    setOnlineControlsBusy(false);
+  }
+}
+
+async function joinOnlineLobby(rawCode) {
+  const formattedCode = formatLobbyCodeInput(rawCode);
+  const code = normalizeLobbyCode(formattedCode);
+  joinCode.value = formattedCode;
+  const valid = Boolean(code);
+  joinCode.setAttribute("aria-invalid", String(!valid));
+  if (!valid) {
+    setOnlineStatus("Enter a complete 6-character lobby code.", "error");
+    focusWithoutScroll(joinCode);
+    return;
+  }
+
+  setOnlineControlsBusy(true);
+  setOnlineStatus(`Joining lobby ${code}…`, "loading");
+  try {
+    const network = await ensureOnlineNetwork();
+    showOnlineRoom(code, "CONNECTING TO HOST", "Claiming the open player slot. This normally takes a few seconds.");
+    const joined = await network.joinLobby(code);
+    if (!joined) throw new Error("That lobby is unavailable or already full.");
+  } catch (error) {
+    console.error("Lobby join failed.", error);
+    setOnlineStatus(onlineMessage(error, "That lobby is unavailable or already full."), "error");
+    setOnlineControlsBusy(false);
+    showOnlineBrowserPanel();
+  }
+}
+
+function showOnlineWait(kicker, title, copy) {
+  onlineWaitKicker.textContent = kicker;
+  onlineWaitTitle.textContent = title;
+  onlineWaitCopy.textContent = copy;
+  showScreen("online-wait-screen");
+}
+
+function beginOnlineMatch(detail = {}) {
+  const role = detail.role === "guest" ? "guest" : "host";
+  const opponentName = sanitizePlayerName(detail.opponentName) || "OPPONENT";
+  const localName = onlineNetworkName || currentOnlineName();
+  resetState();
+  state.mode = "online";
+  state.onlineRole = role;
+  state.localPlayerIndex = role === "host" ? 0 : 1;
+  state.playerNames = role === "host" ? [localName, opponentName] : [opponentName, localName];
+  state.activePlayer = state.localPlayerIndex;
+  updateModeChrome();
+  sound.onlineConnect();
+  if (role === "host") {
+    renderDraft();
+    showScreen("draft-screen");
+    showToast(`${opponentName} joined. You spin first.`);
+  } else {
+    showOnlineWait("CONNECTED · PLAYER 2", "HOST IS DRAFTING.", `${opponentName} spins first. Your private three-spin turn begins when their squad is locked.`);
+  }
+  if (pendingOnlineTeamIds) {
+    const queued = pendingOnlineTeamIds;
+    pendingOnlineTeamIds = null;
+    receiveOnlineTeam(queued);
+  }
+}
+
+function receiveOnlineTeam(ids) {
+  if (!state.onlineRole) {
+    pendingOnlineTeamIds = ids;
+    return;
+  }
+  const team = canonicalTeam(ids);
+  const localTeam = state.teams[state.localPlayerIndex];
+  const overlaps = team?.some((fighter) => localTeam.some((local) => local.id === fighter.id));
+  if (!team || overlaps) {
+    state.flowToken += 1;
+    showOnlineWait("MATCH STOPPED", "INVALID SQUAD DATA", "The opponent sent an invalid or duplicate squad. Leave this match and choose another lobby.");
+    return;
+  }
+
+  if (state.onlineRole === "guest") {
+    if (state.teams[0].length) return;
+    state.teams[0] = team;
+    team.forEach((fighter) => state.used.add(fighter.id));
+    state.activePlayer = 1;
+    renderDraft();
+    showScreen("draft-screen");
+    showToast("Host squad sealed. Your turn starts now.");
+    return;
+  }
+
+  if (state.teams[0].length !== 3) {
+    pendingOnlineTeamIds = ids;
+    return;
+  }
+  if (state.teams[1].length) return;
+  state.teams[1] = team;
+  team.forEach((fighter) => state.used.add(fighter.id));
+  prepareReveal();
+}
+
+async function finishOnlineDraft() {
+  const team = state.teams[state.localPlayerIndex];
+  if (!onlineNetwork || !state.onlineRole || team.length !== 3) {
+    showOnlineWait("MATCH INTERRUPTED", "CONNECTION LOST", "Your squad could not be synchronized. Return to the lobby browser and try again.");
+    return;
+  }
+  const token = state.flowToken;
+  state.phase = "online-wait";
+  state.busy = false;
+  try {
+    const sent = await onlineNetwork.sendTeam(team.map(({ id }) => id));
+    if (token !== state.flowToken) return;
+    if (!sent) {
+      showOnlineWait("MATCH INTERRUPTED", "SYNC FAILED", "The squad could not reach your opponent. Return to the lobby browser and try again.");
+      return;
+    }
+    if (state.onlineRole === "host") {
+      if (pendingOnlineTeamIds) {
+        const queued = pendingOnlineTeamIds;
+        pendingOnlineTeamIds = null;
+        receiveOnlineTeam(queued);
+      } else {
+        showOnlineWait("YOUR SQUAD IS SEALED", "OPPONENT DRAFTING.", `${sideName(1)} is spinning three private fighters now. The matchup reveals when they lock in.`);
+      }
+    } else {
+      prepareReveal();
+    }
+  } catch (error) {
+    if (token !== state.flowToken) return;
+    console.error("Online team synchronization failed.", error);
+    showOnlineWait("MATCH INTERRUPTED", "SYNC FAILED", "The squad could not reach your opponent. Return to the lobby browser and try again.");
+  }
+}
+
+function handleOnlinePeerLeft() {
+  if (!state.onlineRole) return;
+  state.flowToken += 1;
+  state.battleToken += 1;
+  sound.stopAll();
+  showOnlineWait("CONNECTION CLOSED", "OPPONENT LEFT.", "This match has ended. Return to the lobby browser to find another challenger.");
+}
+
+async function leaveOnlineMatchToBrowser() {
+  state.flowToken += 1;
+  state.battleToken += 1;
+  sound.stopAll();
+  if (onlineNetwork) await onlineNetwork.leaveMatch();
+  resetState();
+  state.mode = "online";
+  state.onlineRole = null;
+  updateModeChrome();
+  await openOnlineBrowser();
+}
+
+async function returnToModeSelection() {
+  state.flowToken += 1;
+  state.battleToken += 1;
+  sound.stopAll();
+  if (onlineNetwork) await onlineNetwork.destroy();
+  onlineNetwork = null;
+  onlineNetworkName = "";
+  pendingOnlineTeamIds = null;
+  resetState();
+  state.mode = "pass";
+  state.playerNames = ["PLAYER 1", "PLAYER 2"];
+  modePill.textContent = "CHOOSE MODE";
+  sideOneLabel.textContent = "PLAYER 1";
+  sideTwoLabel.textContent = "PLAYER 2";
+  battleSideOneLabel.textContent = "PLAYER 1 LEFT";
+  battleSideTwoLabel.textContent = "PLAYER 2 LEFT";
+  showScreen("start-screen");
 }
 
 function showHandoff() {
@@ -1070,7 +1625,12 @@ function peakLabel(team) {
 }
 
 function prepareReveal() {
+  if (state.teams.some((team) => team.length !== 3)) {
+    showToast("Both squads need three fighters before the reveal.");
+    return false;
+  }
   sound.stopAll();
+  updateModeChrome();
   state.battle = resolveBattle(state.teams[0], state.teams[1]);
   p1Lineup.replaceChildren(...state.battle.sortedOne.map((character, index) => lineupCard(character, index + 1)));
   p2Lineup.replaceChildren(...state.battle.sortedTwo.map((character, index) => lineupCard(character, index + 1)));
@@ -1082,6 +1642,7 @@ function prepareReveal() {
       ? state.battle.sortedOne[0].power
       : state.battle.sortedTwo[0].power,
   );
+  return true;
 }
 
 function setVerdict(clash) {
@@ -1123,7 +1684,7 @@ function setVerdict(clash) {
 }
 
 async function playBattle() {
-  if (!state.battle) prepareReveal();
+  if (!state.battle && !prepareReveal()) return;
   const token = ++state.battleToken;
   showScreen("battle-screen");
   battleScoreOne.textContent = String(state.battle.sortedOne.length);
@@ -1191,6 +1752,7 @@ async function playBattle() {
 
   if (token !== state.battleToken) return;
   await wait(motionTime(420, 25));
+  if (token !== state.battleToken) return;
   showResult();
 }
 
@@ -1199,7 +1761,8 @@ function showResult() {
   const battle = state.battle;
   const isDraw = battle.winner === 0;
   resultKicker.textContent = isDraw ? "FINAL VERDICT · COMPLETE STALEMATE" : "FINAL VERDICT · FIGHTERS LEFT";
-  resultTitle.textContent = isDraw ? "THE BATTLE DRAWS" : `PLAYER ${battle.winner} WINS`;
+  const winnerName = isDraw ? "" : resultWinnerName(battle.winner);
+  resultTitle.textContent = isDraw ? "THE BATTLE DRAWS" : winnerName === "YOU" ? "YOU WIN" : `${winnerName} WINS`;
   resultTitle.style.color = isDraw ? "var(--paper)" : battle.winner === 1 ? "var(--p1)" : "var(--p2)";
   resultScore.textContent = `${battle.survivorsOne.length} — ${battle.survivorsTwo.length}`;
   if (isDraw) {
@@ -1239,9 +1802,12 @@ function handleSpinAction() {
   else if (state.phase === "lock") lockCharacter();
 }
 
-startGameButton.addEventListener("click", startNewGame);
+startGameButton.addEventListener("click", () => startNewGame("pass"));
+startBotButton.addEventListener("click", () => startNewGame("bot"));
+openOnlineButton.addEventListener("click", () => openOnlineBrowser());
 spinAction.addEventListener("click", handleSpinAction);
 handoffAction.addEventListener("click", continueHandoff);
+botRevealAction.addEventListener("click", prepareReveal);
 beginBattle.addEventListener("click", playBattle);
 skipBattle.addEventListener("click", () => {
   if (!state.battle) return;
@@ -1250,8 +1816,39 @@ skipBattle.addEventListener("click", () => {
   sound.stopAll();
   showResult();
 });
-resetGameButton.addEventListener("click", startNewGame);
+resetGameButton.addEventListener("click", () => {
+  if (state.mode === "online") leaveOnlineMatchToBrowser();
+  else startNewGame(state.mode);
+});
 reviewLineups.addEventListener("click", prepareReveal);
+changeModeButton.addEventListener("click", returnToModeSelection);
+onlineBack.addEventListener("click", returnToModeSelection);
+createLobbyButton.addEventListener("click", createOnlineLobby);
+joinLobbyButton.addEventListener("click", () => joinOnlineLobby(joinCode.value));
+refreshLobbiesButton.addEventListener("click", () => openOnlineBrowser({ force: true }));
+leaveLobbyButton.addEventListener("click", leaveOnlineMatchToBrowser);
+onlineLeaveMatch.addEventListener("click", leaveOnlineMatchToBrowser);
+draftLeaveOnline.addEventListener("click", leaveOnlineMatchToBrowser);
+copyLobbyCode.addEventListener("click", async () => {
+  const code = onlineRoomCode.textContent.trim();
+  try {
+    await navigator.clipboard.writeText(code);
+    showToast(`Lobby code ${code} copied.`);
+  } catch {
+    showToast(`Lobby code: ${code}`);
+  }
+});
+joinCode.addEventListener("input", () => {
+  const normalized = formatLobbyCodeInput(joinCode.value);
+  if (joinCode.value !== normalized) joinCode.value = normalized;
+  joinCode.setAttribute("aria-invalid", "false");
+});
+joinCode.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    joinOnlineLobby(joinCode.value);
+  }
+});
 soundToggle.addEventListener("click", () => {
   sound.enabled = !sound.enabled;
   saveSoundPreference();
@@ -1271,9 +1868,9 @@ document.addEventListener("keydown", (event) => {
   if ((event.code === "Space" || event.code === "Enter") && focusAllowsShortcut) {
     const current = screens.find((screen) => !screen.hidden)?.id;
     const action = {
-      "start-screen": startGameButton,
       "draft-screen": spinAction,
       "handoff-screen": handoffAction,
+      "bot-draft-screen": botRevealAction.hidden ? null : botRevealAction,
       "reveal-screen": beginBattle,
     }[current];
     if (action && !action.disabled) {
@@ -1284,3 +1881,4 @@ document.addEventListener("keydown", (event) => {
 });
 
 updateSoundButton();
+onlineName.value = readOnlineName() || defaultOnlineName();

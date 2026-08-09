@@ -1,7 +1,8 @@
 export const CATEGORY_WEIGHTS = Object.freeze({
-  anime: 0.3,
-  marvel: 0.3,
-  dc: 0.3,
+  anime: 0.25,
+  marvel: 0.25,
+  dc: 0.25,
+  games: 0.15,
   menace: 0.1,
 });
 
@@ -116,6 +117,64 @@ function compareHealth(left, right) {
   return left > right ? 1 : -1;
 }
 
+const FINITE_MISMATCH_RULES = Object.freeze([
+  { severity: "soloed", verdict: "total-mismatch", numerator: 1000n, denominator: 1n },
+  { severity: "brutal", verdict: "overwhelming-win", numerator: 10n, denominator: 1n },
+  { severity: "dominant", verdict: "decisive-win", numerator: 2n, denominator: 1n },
+  { severity: "edge", verdict: "narrow-edge", numerator: 5n, denominator: 4n },
+]);
+
+/**
+ * Classify a clash without lossy Number conversion. Finite ratio boundaries are:
+ * fair < 1.25x, edge < 2x, dominant < 10x, brutal < 1000x, soloed >= 1000x.
+ */
+export function classifyPowerMismatch(leftPower, rightPower) {
+  const left = parseHealth(leftPower);
+  const right = parseHealth(rightPower);
+  const comparison = compareHealth(left, right);
+
+  if (left === Infinity && right === Infinity) {
+    return {
+      severity: "fair",
+      verdict: "boundless-nullification",
+      stronger: 0,
+      powerGap: 0n,
+    };
+  }
+
+  if (left === Infinity || right === Infinity) {
+    return {
+      severity: "soloed",
+      verdict: "boundless-overmatch",
+      stronger: left === Infinity ? 1 : 2,
+      powerGap: Infinity,
+    };
+  }
+
+  if (comparison === 0) {
+    return {
+      severity: "fair",
+      verdict: "dead-even",
+      stronger: 0,
+      powerGap: 0n,
+    };
+  }
+
+  const strongerPower = comparison > 0 ? left : right;
+  const weakerPower = comparison > 0 ? right : left;
+  const powerGap = strongerPower - weakerPower;
+  const rule = FINITE_MISMATCH_RULES.find(
+    ({ numerator, denominator }) => strongerPower * denominator >= weakerPower * numerator,
+  );
+
+  return {
+    severity: rule?.severity || "fair",
+    verdict: rule?.verdict || "photo-finish",
+    stronger: comparison > 0 ? 1 : 2,
+    powerGap,
+  };
+}
+
 export function sortTeam(team) {
   if (!Array.isArray(team)) throw new TypeError("Team must be an array.");
   return team
@@ -136,6 +195,7 @@ export function resolveClash(
 ) {
   const leftBefore = parseHealth(leftHealth);
   const rightBefore = parseHealth(rightHealth);
+  const mismatch = classifyPowerMismatch(leftBefore, rightBefore);
 
   if (leftBefore === Infinity && rightBefore === Infinity) {
     return {
@@ -150,6 +210,7 @@ export function resolveClash(
       eliminated: { left: true, right: true },
       winner: 0,
       reason: "boundless-nullification",
+      ...mismatch,
     };
   }
 
@@ -166,6 +227,7 @@ export function resolveClash(
       eliminated: { left: false, right: true },
       winner: 1,
       reason: "boundless-win",
+      ...mismatch,
     };
   }
 
@@ -182,6 +244,7 @@ export function resolveClash(
       eliminated: { left: true, right: false },
       winner: 2,
       reason: "boundless-win",
+      ...mismatch,
     };
   }
 
@@ -199,6 +262,7 @@ export function resolveClash(
       eliminated: { left: true, right: true },
       winner: 0,
       reason: "equal-power",
+      ...mismatch,
     };
   }
 
@@ -215,6 +279,7 @@ export function resolveClash(
     eliminated: { left: !leftWins, right: leftWins },
     winner: leftWins ? 1 : 2,
     reason: "greater-power",
+    ...mismatch,
   };
 }
 

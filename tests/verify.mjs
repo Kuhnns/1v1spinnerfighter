@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { animeCharacters } from "../data/anime.js";
 import { dcCharacters, marvelCharacters } from "../data/comics.js";
 import { menaceCharacters } from "../data/menaces.js";
+import { videoGameCharacters } from "../data/video-games.js";
 import {
   CATEGORY_WEIGHTS,
+  classifyPowerMismatch,
   chooseWeighted,
   formatHealth,
   formatPower,
@@ -19,14 +21,20 @@ const pools = {
   anime: animeCharacters,
   marvel: marvelCharacters,
   dc: dcCharacters,
+  games: videoGameCharacters,
   menace: menaceCharacters,
 };
 
 assert.equal(marvelCharacters.length, 50);
 assert.equal(dcCharacters.length, 50);
 assert.equal(animeCharacters.length, 100);
+assert.equal(videoGameCharacters.length, 50);
 assert.equal(menaceCharacters.length, 50);
-assert.equal(Object.values(pools).flat().length, 250);
+assert.equal(Object.values(pools).flat().length, 300);
+for (const name of ["Kirby", "Arceus", "Bayonetta", "Kratos", "Asura", "Doom Slayer", "Dante", "Sephiroth", "Giygas", "SHODAN", "Kefka Palazzo"]) {
+  assert.ok(videoGameCharacters.some((character) => character.name === name), `${name} must be in Video Game Legends`);
+  assert.ok(!menaceCharacters.some((character) => character.name === name), `${name} must not remain in Menaces`);
+}
 
 const animeSources = Object.groupBy(animeCharacters, (character) => character.source);
 assert.equal(animeSources["Jujutsu Kaisen"].length, 30);
@@ -45,16 +53,15 @@ for (const character of all) {
 }
 
 assert.ok(Math.abs(Object.values(CATEGORY_WEIGHTS).reduce((sum, weight) => sum + weight, 0) - 1) < 1e-12);
-const weighted = [
-  { id: "anime", weight: 0.3 },
-  { id: "marvel", weight: 0.3 },
-  { id: "dc", weight: 0.3 },
-  { id: "menace", weight: 0.1 },
-];
+assert.deepEqual(CATEGORY_WEIGHTS, { anime: 0.25, marvel: 0.25, dc: 0.25, games: 0.15, menace: 0.1 });
+const weighted = Object.entries(CATEGORY_WEIGHTS).map(([id, weight]) => ({ id, weight }));
 assert.equal(chooseWeighted(weighted, 0).id, "anime");
-assert.equal(chooseWeighted(weighted, 0.299999).id, "anime");
-assert.equal(chooseWeighted(weighted, 0.3).id, "marvel");
-assert.equal(chooseWeighted(weighted, 0.6).id, "dc");
+assert.equal(chooseWeighted(weighted, 0.249999).id, "anime");
+assert.equal(chooseWeighted(weighted, 0.25).id, "marvel");
+assert.equal(chooseWeighted(weighted, 0.5).id, "dc");
+assert.equal(chooseWeighted(weighted, 0.75).id, "games");
+assert.equal(chooseWeighted(weighted, 0.899999).id, "games");
+assert.equal(chooseWeighted(weighted, 0.9).id, "menace");
 assert.equal(chooseWeighted(weighted, 0.95).id, "menace");
 
 assert.equal(formatPower("1500000000"), "1.5B");
@@ -98,6 +105,62 @@ assert.deepEqual(sortTeam([almostEqualLow, almostEqualHigh]).map((character) => 
   "Almost Equal Low",
 ]);
 
+const exactScale = 10n ** 250n;
+assert.deepEqual(classifyPowerMismatch(exactScale, exactScale), {
+  severity: "fair",
+  verdict: "dead-even",
+  stronger: 0,
+  powerGap: 0n,
+});
+assert.deepEqual(classifyPowerMismatch(exactScale + 1n, exactScale), {
+  severity: "fair",
+  verdict: "photo-finish",
+  stronger: 1,
+  powerGap: 1n,
+});
+assert.equal(classifyPowerMismatch(exactScale * 5n - 1n, exactScale * 4n).severity, "fair");
+assert.deepEqual(classifyPowerMismatch(exactScale * 5n, exactScale * 4n), {
+  severity: "edge",
+  verdict: "narrow-edge",
+  stronger: 1,
+  powerGap: exactScale,
+});
+assert.equal(classifyPowerMismatch(exactScale * 2n - 1n, exactScale).severity, "edge");
+assert.equal(classifyPowerMismatch(exactScale * 2n, exactScale).severity, "dominant");
+assert.equal(classifyPowerMismatch(exactScale * 10n - 1n, exactScale).severity, "dominant");
+assert.equal(classifyPowerMismatch(exactScale * 10n, exactScale).severity, "brutal");
+assert.equal(classifyPowerMismatch(exactScale * 1000n - 1n, exactScale).severity, "brutal");
+assert.deepEqual(classifyPowerMismatch(exactScale * 1000n, exactScale), {
+  severity: "soloed",
+  verdict: "total-mismatch",
+  stronger: 1,
+  powerGap: exactScale * 999n,
+});
+assert.deepEqual(classifyPowerMismatch(1n, 10n ** 500n), {
+  severity: "soloed",
+  verdict: "total-mismatch",
+  stronger: 2,
+  powerGap: 10n ** 500n - 1n,
+});
+assert.deepEqual(classifyPowerMismatch(Infinity, exactScale), {
+  severity: "soloed",
+  verdict: "boundless-overmatch",
+  stronger: 1,
+  powerGap: Infinity,
+});
+assert.deepEqual(classifyPowerMismatch(exactScale, "Infinity"), {
+  severity: "soloed",
+  verdict: "boundless-overmatch",
+  stronger: 2,
+  powerGap: Infinity,
+});
+assert.deepEqual(classifyPowerMismatch("Infinity", Infinity), {
+  severity: "fair",
+  verdict: "boundless-nullification",
+  stronger: 0,
+  powerGap: 0n,
+});
+
 const finiteClash = resolveClash(
   { name: "Fifteen", power: "15" },
   { name: "Ten", power: "10" },
@@ -109,6 +172,22 @@ assert.equal(finiteClash.rightHealthBefore, 10n);
 assert.equal(finiteClash.leftHealthAfter, 5n);
 assert.equal(finiteClash.rightHealthAfter, 0n);
 assert.deepEqual(finiteClash.eliminated, { left: false, right: true });
+assert.equal(finiteClash.severity, "edge");
+assert.equal(finiteClash.verdict, "narrow-edge");
+assert.equal(finiteClash.stronger, 1);
+assert.equal(finiteClash.powerGap, 5n);
+
+const exactBigIntClash = resolveClash(
+  { name: "Exact High", power: "1" },
+  { name: "Exact Low", power: "1" },
+  exactScale + 1n,
+  exactScale,
+);
+assert.equal(exactBigIntClash.leftHealthAfter, 1n);
+assert.equal(exactBigIntClash.rightHealthAfter, 0n);
+assert.equal(exactBigIntClash.severity, "fair");
+assert.equal(exactBigIntClash.verdict, "photo-finish");
+assert.equal(exactBigIntClash.powerGap, 1n);
 
 const equalClash = resolveClash(
   { name: "Equal Left", power: "1e80" },
@@ -118,17 +197,26 @@ assert.equal(equalClash.winner, 0);
 assert.equal(equalClash.reason, "equal-power");
 assert.equal(equalClash.leftHealthAfter, 0n);
 assert.equal(equalClash.rightHealthAfter, 0n);
+assert.equal(equalClash.severity, "fair");
+assert.equal(equalClash.verdict, "dead-even");
+assert.equal(equalClash.powerGap, 0n);
 
 const infinityWin = resolveClash(boundlessOne, { name: "Huge Finite", power: "9.9e100" });
 assert.equal(infinityWin.winner, 1);
 assert.equal(infinityWin.leftHealthAfter, Infinity);
 assert.equal(infinityWin.rightHealthAfter, 0n);
+assert.equal(infinityWin.severity, "soloed");
+assert.equal(infinityWin.verdict, "boundless-overmatch");
+assert.equal(infinityWin.powerGap, Infinity);
 
 const infinityCancellation = resolveClash(boundlessOne, boundlessTwo);
 assert.equal(infinityCancellation.winner, 0);
 assert.equal(infinityCancellation.reason, "boundless-nullification");
 assert.equal(infinityCancellation.leftHealthAfter, 0n);
 assert.equal(infinityCancellation.rightHealthAfter, 0n);
+assert.equal(infinityCancellation.severity, "fair");
+assert.equal(infinityCancellation.verdict, "boundless-nullification");
+assert.equal(infinityCancellation.powerGap, 0n);
 
 const fighter = (name, power) => ({ name, power });
 const enduranceBattle = resolveBattle(
@@ -159,6 +247,16 @@ assert.deepEqual(
 assert.deepEqual(
   enduranceBattle.timeline.map(({ remainingOne, remainingTwo }) => [remainingOne, remainingTwo]),
   [[3, 2], [2, 2], [2, 1], [1, 1], [1, 0]],
+);
+assert.deepEqual(
+  enduranceBattle.timeline.map(({ severity, verdict }) => [severity, verdict]),
+  [
+    ["edge", "narrow-edge"],
+    ["dominant", "decisive-win"],
+    ["edge", "narrow-edge"],
+    ["edge", "narrow-edge"],
+    ["dominant", "decisive-win"],
+  ],
 );
 assert.equal(enduranceBattle.scoreOne, 3);
 assert.equal(enduranceBattle.scoreTwo, 2);
@@ -206,4 +304,4 @@ assert.equal(infinitySweep.survivorsOne.length, 3);
 assert.equal(infinitySweep.remainingHealthOne, Infinity);
 assert.equal(infinitySweep.remainingHealthTwo, 0n);
 
-console.log("Verified 250 fighters plus exact BigInt endurance, five-clash timelines, health formatting, and Infinity rules.");
+console.log("Verified 300 fighters plus exact BigInt endurance, mismatch severity boundaries, health formatting, and Infinity rules.");

@@ -1,6 +1,7 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-2";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-2";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-2";
+import { animeCharacters } from "./data/anime.js?v=20260809-3";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-3";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-3";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-3";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
@@ -11,16 +12,18 @@ import {
   powerToHealth,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-2";
+} from "./game-logic.js?v=20260809-3";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+const REDUCED_MOTION_AUDIO_SCALE = 0.035;
 
 const categories = [
-  { id: "anime", label: "ANIME", weight: CATEGORY_WEIGHTS.anime, roster: animeCharacters, center: 54 },
-  { id: "marvel", label: "MARVEL", weight: CATEGORY_WEIGHTS.marvel, roster: marvelCharacters, center: 162 },
-  { id: "dc", label: "DC", weight: CATEGORY_WEIGHTS.dc, roster: dcCharacters, center: 270 },
+  { id: "anime", label: "ANIME", weight: CATEGORY_WEIGHTS.anime, roster: animeCharacters, center: 45 },
+  { id: "marvel", label: "MARVEL", weight: CATEGORY_WEIGHTS.marvel, roster: marvelCharacters, center: 135 },
+  { id: "dc", label: "DC", weight: CATEGORY_WEIGHTS.dc, roster: dcCharacters, center: 225 },
+  { id: "games", label: "VIDEO GAME LEGENDS", weight: CATEGORY_WEIGHTS.games, roster: videoGameCharacters, center: 297 },
   { id: "menace", label: "FICTION & TOON MENACES", weight: CATEGORY_WEIGHTS.menace, roster: menaceCharacters, center: 342 },
 ];
 
@@ -57,9 +60,11 @@ const battleScoreTwo = $("#battle-score-two");
 const clashNumber = $("#clash-number");
 const clashTotal = $("#clash-total");
 const clashArena = $("#clash-arena");
+const defeatStamp = $("#defeat-stamp");
 const battleCardOne = $("#battle-card-one");
 const battleCardTwo = $("#battle-card-two");
 const clashVerdict = $("#clash-verdict");
+const battleAnnouncer = $("#battle-announcer");
 const skipBattle = $("#skip-battle");
 const resultKicker = $("#result-kicker");
 const resultTitle = $("#result-title");
@@ -78,6 +83,15 @@ const tierColors = {
   outer: "#ff5576",
   boundless: "#dfff42",
 };
+
+const severityClasses = ["severity-fair", "severity-edge", "severity-dominant", "severity-brutal", "severity-soloed"];
+const severityCopy = Object.freeze({
+  fair: "PHOTO FINISH",
+  edge: "NARROW EDGE",
+  dominant: "DOMINATED",
+  brutal: "BRUTAL",
+  soloed: "SOLOED",
+});
 
 const state = {
   activePlayer: 0,
@@ -125,7 +139,7 @@ class SoundEngine {
     if (!this.enabled) return;
     this.arm();
     if (!this.context) return;
-    const scale = reducedMotion ? 0.38 : 1;
+    const scale = motionPreference.matches ? REDUCED_MOTION_AUDIO_SCALE : 1;
     const { delay = 0, type = "sine", volume = 0.035, endFrequency = frequency } = options;
     const scaledDuration = Math.max(0.025, duration * scale);
     const start = this.context.currentTime + delay * scale;
@@ -171,6 +185,12 @@ class SoundEngine {
     }
   }
 
+  arcade() {
+    [392, 523, 659, 784, 1047].forEach((note, index) => {
+      this.tone(note, 0.09, { delay: index * 0.055, type: "square", volume: 0.018, endFrequency: note * 1.04 });
+    });
+  }
+
   reelTick(index) {
     if (index % 2 === 0) this.tone(320 + (index % 7) * 25, 0.035, { type: "triangle", volume: 0.012 });
   }
@@ -182,16 +202,52 @@ class SoundEngine {
     this.tone(base * 1.5, 0.5, { delay: 0.06, type: "sine", volume: 0.035, endFrequency: base * 2.05 });
   }
 
-  impact(powerOne, powerTwo) {
+  charge(severity = "fair") {
+    const strength = { fair: 0, edge: 1, dominant: 2, brutal: 3, soloed: 4 }[severity] ?? 0;
+    const base = 115 + strength * 18;
+    for (let index = 0; index < 5 + strength; index += 1) {
+      this.tone(base + index * (22 + strength * 3), 0.12, {
+        delay: index * 0.065,
+        type: index % 2 ? "triangle" : "sawtooth",
+        volume: 0.009 + strength * 0.002,
+        endFrequency: base * 1.55 + index * 30,
+      });
+    }
+  }
+
+  impact(powerOne, powerTwo, severity = "fair") {
     const topScore = Math.max(powerScore(powerOne), powerScore(powerTwo));
     const intensity = topScore === Infinity ? 1 : Math.min(1, topScore / 100);
-    this.tone(95 + intensity * 55, 0.52, { type: "sawtooth", volume: 0.055, endFrequency: 40 });
-    this.tone(520 + intensity * 400, 0.26, { delay: 0.05, type: "square", volume: 0.018, endFrequency: 120 });
+    const mismatch = { fair: 0, edge: 0.12, dominant: 0.28, brutal: 0.48, soloed: 0.72 }[severity] ?? 0;
+    this.tone(95 + intensity * 55, 0.52 + mismatch * 0.3, { type: "sawtooth", volume: 0.05 + mismatch * 0.025, endFrequency: 40 });
+    this.tone(520 + intensity * 400 + mismatch * 420, 0.26, { delay: 0.05, type: "square", volume: 0.018 + mismatch * 0.012, endFrequency: 120 });
+    if (severity === "brutal" || severity === "soloed") {
+      this.tone(62, 0.72, { delay: 0.03, type: "sine", volume: 0.06, endFrequency: 35 });
+      this.tone(severity === "soloed" ? 1900 : 1380, 0.11, { type: "square", volume: 0.018, endFrequency: 180 });
+    }
   }
 
   verdict(winner) {
     const notes = winner ? [330, 495, 660] : [280, 260, 240];
     notes.forEach((note, index) => this.tone(note, 0.22, { delay: index * 0.1, type: "triangle", volume: 0.025 }));
+  }
+
+  defeat(severity, winner) {
+    if (!winner || severity === "fair" || severity === "edge") {
+      this.verdict(winner);
+      return;
+    }
+    const notes = severity === "soloed"
+      ? [880, 440, 110, 55]
+      : severity === "brutal"
+        ? [620, 310, 92]
+        : [520, 390, 260];
+    notes.forEach((note, index) => this.tone(note, 0.3 + index * 0.07, {
+      delay: index * 0.075,
+      type: severity === "dominant" ? "triangle" : "sawtooth",
+      volume: 0.02 + index * 0.006,
+      endFrequency: Math.max(35, note * 0.46),
+    }));
   }
 
   lock(power) {
@@ -237,7 +293,28 @@ class SoundEngine {
 }
 
 const sound = new SoundEngine();
-const imageCache = new Map();
+const IMAGE_REQUEST_TIMEOUT = 6500;
+const IMAGE_RESOLUTION_TIMEOUT = 15000;
+const NEGATIVE_IMAGE_CACHE_TTL = 30000;
+const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
+const ANILIST_API = "https://graphql.anilist.co";
+const animeSources = new Set(["Jujutsu Kaisen", "Naruto", "Dragon Ball", "One Piece"]);
+const imageOverrides = Object.freeze({
+  "one-piece-rocks-d-xebec": [
+    "https://static.wikia.nocookie.net/onepiece/images/f/fb/Rocks_D._Xebec_Manga_Infobox.png/revision/latest?cb=20260228213945",
+  ],
+});
+const fandomApis = Object.freeze({
+  "Jujutsu Kaisen": "https://jujutsu-kaisen.fandom.com/api.php",
+  Naruto: "https://naruto.fandom.com/api.php",
+  "Dragon Ball": "https://dragonball.fandom.com/api.php",
+  "One Piece": "https://onepiece.fandom.com/api.php",
+  Marvel: "https://marvel.fandom.com/api.php",
+  DC: "https://dc.fandom.com/api.php",
+});
+const imageResolutionCache = new Map();
+const imageRequestCache = new Map();
+const imageProbeCache = new Map();
 let toastTimer = 0;
 
 function readSoundPreference() {
@@ -266,7 +343,7 @@ function randomUnit() {
 }
 
 function motionTime(standard, minimal = 35) {
-  return reducedMotion ? minimal : standard;
+  return motionPreference.matches ? minimal : standard;
 }
 
 function wait(milliseconds) {
@@ -288,6 +365,8 @@ function initials(name) {
 }
 
 function categoryLabel(character) {
+  if (character.categoryId === "games") return "VIDEO GAMES";
+  if (character.categoryId === "menace") return "MENACE";
   return character.categoryLabel || character.source;
 }
 
@@ -298,13 +377,28 @@ function healthPercent(current, maximum) {
   return Math.max(1, Math.min(100, tenths));
 }
 
+function focusWithoutScroll(element) {
+  if (!element) return;
+  try {
+    element.focus({ preventScroll: true });
+  } catch {
+    element.focus();
+  }
+}
+
 function showScreen(id) {
+  let activeScreen = null;
   screens.forEach((screen) => {
     const active = screen.id === id;
     screen.hidden = !active;
     screen.classList.toggle("is-active", active);
+    if (active) activeScreen = screen;
   });
-  window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  if (activeScreen) {
+    activeScreen.tabIndex = -1;
+    focusWithoutScroll(activeScreen);
+  }
+  window.scrollTo({ top: 0, behavior: motionPreference.matches ? "auto" : "smooth" });
 }
 
 function showToast(message) {
@@ -320,49 +414,338 @@ function updateSoundButton() {
   soundToggle.firstElementChild.textContent = sound.enabled ? "SFX" : "OFF";
 }
 
-async function getCharacterImage(character) {
-  if (imageCache.has(character.wiki)) return imageCache.get(character.wiki);
+function characterImageKey(character) {
+  return character.id || `${character.name}|${character.source}|${character.wiki}`;
+}
+
+function uniqueUrls(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && /^https:\/\//i.test(value)))];
+}
+
+function normalizedLookup(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tokenKey(value) {
+  return normalizedLookup(value).split(" ").filter(Boolean).sort().join(" ");
+}
+
+function cachedJson(url, options = {}) {
+  const method = options.method || "GET";
+  const cacheKey = `${method}:${url}:${options.body || ""}`;
+  if (imageRequestCache.has(cacheKey)) return imageRequestCache.get(cacheKey);
 
   const request = (async () => {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timeout = 0;
     try {
-      const title = encodeURIComponent(character.wiki.replace(/ /g, "_"));
-      const summaryResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
-      if (summaryResponse.ok) {
-        const summary = await summaryResponse.json();
-        if (summary.thumbnail?.source) return summary.thumbnail.source;
-      }
-
-      const pageResponse = await fetch(
-        `https://en.wikipedia.org/w/api.php?action=query&origin=*&redirects=1&prop=pageimages&piprop=thumbnail&pithumbsize=640&format=json&titles=${encodeURIComponent(character.wiki)}`,
-      );
-      if (!pageResponse.ok) return null;
-      const payload = await pageResponse.json();
-      const page = payload?.query?.pages ? Object.values(payload.query.pages)[0] : null;
-      return page?.thumbnail?.source || null;
+      const fetchRequest = fetch(url, {
+        ...options,
+        credentials: "omit",
+        signal: controller?.signal,
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null);
+      const deadline = new Promise((resolve) => {
+        timeout = window.setTimeout(() => {
+          controller?.abort();
+          resolve(null);
+        }, IMAGE_REQUEST_TIMEOUT);
+      });
+      return await Promise.race([fetchRequest, deadline]);
     } catch {
       return null;
+    } finally {
+      window.clearTimeout(timeout);
     }
   })();
 
-  imageCache.set(character.wiki, request);
+  imageRequestCache.set(cacheKey, request);
+  request.then((payload) => {
+    if (!payload) imageRequestCache.delete(cacheKey);
+  });
+  return request;
+}
+
+function wikipediaUrl(parameters) {
+  const url = new URL(WIKIPEDIA_API);
+  const values = {
+    action: "query",
+    format: "json",
+    formatversion: "2",
+    origin: "*",
+    redirects: "1",
+    prop: "pageimages",
+    piprop: "thumbnail",
+    pithumbsize: "640",
+    pilicense: "any",
+    ...parameters,
+  };
+  Object.entries(values).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url.href;
+}
+
+function fandomApiFor(character) {
+  if (fandomApis[character.source]) return fandomApis[character.source];
+  if (/marvel/i.test(character.source)) return fandomApis.Marvel;
+  if (/\bdc\b|watchmen/i.test(character.source)) return fandomApis.DC;
+  return null;
+}
+
+function fandomUrl(endpoint, parameters) {
+  const url = new URL(endpoint);
+  const values = {
+    action: "query",
+    format: "json",
+    formatversion: "2",
+    origin: "*",
+    redirects: "1",
+    prop: "pageimages",
+    piprop: "thumbnail",
+    pithumbsize: "640",
+    ...parameters,
+  };
+  Object.entries(values).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url.href;
+}
+
+function pageImageUrls(payload) {
+  const pages = payload?.query?.pages;
+  if (!pages) return [];
+  const list = Array.isArray(pages) ? [...pages] : Object.values(pages);
+  return uniqueUrls(
+    list
+      .sort((left, right) => (left.index ?? Number.MAX_SAFE_INTEGER) - (right.index ?? Number.MAX_SAFE_INTEGER))
+      .map((page) => page.thumbnail?.source),
+  );
+}
+
+async function wikipediaTitleImages(character) {
+  if (/^(?:list of|characters (?:in|of)|cast of)\b/i.test(character.wiki)) return [];
+  const payload = await cachedJson(wikipediaUrl({ titles: character.wiki }));
+  return pageImageUrls(payload);
+}
+
+async function wikipediaSearchImages(character) {
+  const quotedName = character.name.replace(/"/g, "");
+  const payload = await cachedJson(wikipediaUrl({
+    generator: "search",
+    gsrsearch: `"${quotedName}" ${character.source}`,
+    gsrnamespace: "0",
+    gsrlimit: "6",
+  }));
+  return pageImageUrls(payload);
+}
+
+function overrideImages(character) {
+  return uniqueUrls(imageOverrides[character.id] || []);
+}
+
+async function fandomSearchImages(character) {
+  const endpoint = fandomApiFor(character);
+  if (!endpoint) return [];
+  const payload = await cachedJson(fandomUrl(endpoint, {
+    generator: "search",
+    gsrsearch: character.name,
+    gsrnamespace: "0",
+    gsrlimit: "5",
+  }));
+  return pageImageUrls(payload);
+}
+
+function aniListMatchScore(candidate, character) {
+  const expectedName = normalizedLookup(character.name);
+  const expectedTokens = tokenKey(character.name);
+  const names = [candidate.name?.full, ...(candidate.name?.alternative || [])];
+  const normalizedNames = names.map(normalizedLookup);
+  const exactName = normalizedNames.includes(expectedName);
+  const sameTokens = names.some((name) => tokenKey(name) === expectedTokens);
+  const source = normalizedLookup(character.source);
+  const mediaTitles = (candidate.media?.nodes || []).flatMap((media) => [
+    media.title?.romaji,
+    media.title?.english,
+  ]).map(normalizedLookup).filter(Boolean);
+  const sourceMatch = mediaTitles.some((title) => title.includes(source) || source.includes(title));
+
+  if (!exactName && !sameTokens) return -1;
+  return (sourceMatch ? 100 : 0) + (exactName ? 20 : sameTokens ? 15 : 0);
+}
+
+async function aniListImages(character) {
+  const query = `
+    query CharacterImages($search: String) {
+      Page(page: 1, perPage: 25) {
+        characters(search: $search, sort: SEARCH_MATCH) {
+          name { full alternative }
+          image { large medium }
+          media(perPage: 10) { nodes { title { romaji english } } }
+        }
+      }
+    }
+  `;
+  const payload = await cachedJson(ANILIST_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables: { search: character.name } }),
+  });
+  const matches = payload?.data?.Page?.characters || [];
+  const best = matches
+    .map((candidate) => ({ candidate, score: aniListMatchScore(candidate, character) }))
+    .filter((match) => match.score >= 0)
+    .sort((left, right) => right.score - left.score)[0]?.candidate;
+  return uniqueUrls([best?.image?.large, best?.image?.medium]);
+}
+
+function imageLoads(source) {
+  if (imageProbeCache.has(source)) return imageProbeCache.get(source);
+
+  const probe = new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (loaded) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(loaded);
+    };
+    const timeout = window.setTimeout(() => finish(false), IMAGE_REQUEST_TIMEOUT);
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("load", () => finish(image.naturalWidth > 0), { once: true });
+    image.addEventListener("error", () => finish(false), { once: true });
+    image.src = source;
+    if (image.complete) Promise.resolve().then(() => finish(image.naturalWidth > 0));
+  });
+
+  imageProbeCache.set(source, probe);
+  probe.then((loaded) => {
+    if (!loaded) {
+      window.setTimeout(() => {
+        if (imageProbeCache.get(source) === probe) imageProbeCache.delete(source);
+      }, NEGATIVE_IMAGE_CACHE_TTL);
+    }
+  });
+  return probe;
+}
+
+function withTimeout(promise, milliseconds) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = window.setTimeout(() => finish(null), milliseconds);
+    promise.then(finish, () => finish(null));
+  });
+}
+
+export async function resolveImageProviders(providers, character, loadImage = imageLoads) {
+  const seen = new Set();
+  for (const provider of providers) {
+    let candidates = [];
+    try {
+      candidates = await provider(character);
+    } catch {
+      continue;
+    }
+    const sources = uniqueUrls(Array.isArray(candidates) ? candidates : [])
+      .filter((source) => !seen.has(source));
+    sources.forEach((source) => seen.add(source));
+    const outcomes = await Promise.all(sources.map(async (source) => ({ source, loaded: await loadImage(source) })));
+    const firstLoaded = outcomes.find(({ loaded }) => loaded);
+    if (firstLoaded) return firstLoaded.source;
+  }
+  return null;
+}
+
+export async function getCharacterImage(character) {
+  const cacheKey = characterImageKey(character);
+  if (imageResolutionCache.has(cacheKey)) return imageResolutionCache.get(cacheKey);
+
+  const resolution = (async () => {
+    const isAnime = character.categoryId === "anime" || animeSources.has(character.source);
+    const providers = isAnime
+      ? [overrideImages, aniListImages, fandomSearchImages, wikipediaSearchImages, wikipediaTitleImages]
+      : [overrideImages, fandomSearchImages, wikipediaSearchImages, wikipediaTitleImages];
+    return resolveImageProviders(providers, character);
+  })();
+  const request = withTimeout(resolution, IMAGE_RESOLUTION_TIMEOUT);
+
+  imageResolutionCache.set(cacheKey, request);
+  request.then((source) => {
+    if (!source) imageResolutionCache.delete(cacheKey);
+  });
   return request;
 }
 
 async function hydratePortrait(root, character) {
   const portrait = $("[data-portrait]", root);
-  if (!portrait || portrait.dataset.loaded === "true") return;
+  if (!portrait || portrait.dataset.loaded === "true" || portrait.dataset.loading === "true") return;
+  portrait.dataset.loading = "true";
   const source = await getCharacterImage(character);
-  if (!source || !portrait.isConnected) return;
+  if (!source || !portrait.isConnected) {
+    delete portrait.dataset.loading;
+    return;
+  }
+
   const image = new Image();
+  let settled = false;
+  const finishDetached = () => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(displayTimeout);
+    delete portrait.dataset.loading;
+  };
+  const finishFailure = () => {
+    if (settled) return;
+    if (!portrait.isConnected) {
+      finishDetached();
+      return;
+    }
+    settled = true;
+    window.clearTimeout(displayTimeout);
+    delete portrait.dataset.loaded;
+    delete portrait.dataset.loading;
+    const failedProbe = Promise.resolve(false);
+    imageProbeCache.set(source, failedProbe);
+    window.setTimeout(() => {
+      if (imageProbeCache.get(source) === failedProbe) imageProbeCache.delete(source);
+    }, NEGATIVE_IMAGE_CACHE_TTL);
+    imageResolutionCache.delete(characterImageKey(character));
+    if (portrait.isConnected) hydratePortrait(root, character);
+  };
+  const finishLoad = () => {
+    if (settled) return;
+    if (!portrait.isConnected) {
+      finishDetached();
+      return;
+    }
+    if (!image.naturalWidth) {
+      finishFailure();
+      return;
+    }
+    settled = true;
+    window.clearTimeout(displayTimeout);
+    portrait.prepend(image);
+    portrait.dataset.loaded = "true";
+    delete portrait.dataset.loading;
+  };
+  const displayTimeout = window.setTimeout(finishFailure, IMAGE_REQUEST_TIMEOUT);
   image.alt = `${character.name}, ${character.form}`;
   image.decoding = "async";
   image.referrerPolicy = "no-referrer";
+  image.addEventListener("load", finishLoad, { once: true });
+  image.addEventListener("error", finishFailure, { once: true });
   image.src = source;
-  image.addEventListener("load", () => {
-    if (!portrait.isConnected) return;
-    portrait.prepend(image);
-    portrait.dataset.loaded = "true";
-  }, { once: true });
+  if (image.complete) Promise.resolve().then(() => (image.naturalWidth ? finishLoad() : finishFailure()));
 }
 
 function fighterCard(character, cardNumber = "", healthState = null) {
@@ -370,10 +753,11 @@ function fighterCard(character, cardNumber = "", healthState = null) {
   const card = document.createElement("article");
   card.className = "fighter-card";
   card.dataset.tier = tier;
+  if (character.categoryId) card.dataset.category = character.categoryId;
   if (healthState) card.classList.add("has-health");
   const healthMarkup = healthState
     ? `
-      <div class="battle-health" role="progressbar" aria-label="${escapeHtml(character.name)} health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${healthPercent(healthState.current, healthState.maximum)}">
+      <div class="battle-health" role="progressbar" aria-label="${escapeHtml(character.name)} health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${healthPercent(healthState.current, healthState.maximum)}" aria-valuetext="${escapeHtml(`${formatHealth(healthState.current)} remaining`)}">
         <div class="battle-health-copy">
           <span>HEALTH REMAINING</span>
           <strong data-health-value>${escapeHtml(formatHealth(healthState.current))}</strong>
@@ -439,6 +823,7 @@ function updateCardHealth(slot, health, eliminated) {
   fill.style.width = `${percent}%`;
   value.textContent = formatHealth(health);
   progress.setAttribute("aria-valuenow", String(percent));
+  progress.setAttribute("aria-valuetext", `${formatHealth(health)} remaining`);
   card.classList.toggle("is-exhausted", eliminated);
   card.classList.toggle("is-survivor", !eliminated);
 }
@@ -536,6 +921,7 @@ function resetSpinStage() {
   spinResult.textContent = "Weighted odds are live. The multiverse decides.";
   spinAction.textContent = "SPIN CATEGORY";
   spinAction.disabled = false;
+  if (!spinAction.closest(".screen")?.hidden) focusWithoutScroll(spinAction);
 }
 
 async function spinCategory() {
@@ -560,10 +946,12 @@ async function spinCategory() {
   state.busy = false;
   spinAction.disabled = false;
   spinAction.textContent = "SUMMON FIGHTER";
+  focusWithoutScroll(spinAction);
   stageStep.textContent = "STEP 2 OF 2";
   stageInstruction.textContent = `${category.label} LOCKED`;
   spinResult.textContent = `${category.label} selected · ${category.roster.length} elite forms in the pool.`;
-  sound.reveal(category.id === "menace" ? "1e30" : "1e12");
+  if (category.id === "games") sound.arcade();
+  else sound.reveal(category.id === "menace" ? "1e30" : "1e12");
 }
 
 async function spinCharacter() {
@@ -608,9 +996,11 @@ async function spinCharacter() {
   state.busy = false;
   spinAction.disabled = false;
   spinAction.textContent = "LOCK FIGHTER";
+  focusWithoutScroll(spinAction);
   stageInstruction.textContent = "POWER SIGNATURE FOUND";
   spinResult.textContent = `${state.selectedCharacter.name} answers the spin.`;
   sound.reveal(state.selectedCharacter.power);
+  if (category.id === "games") sound.arcade();
 }
 
 async function lockCharacter() {
@@ -696,6 +1086,8 @@ function prepareReveal() {
 
 function setVerdict(clash) {
   clashVerdict.className = "clash-verdict";
+  clashVerdict.dataset.severity = clash.severity;
+  clashVerdict.style.removeProperty("--winner-color");
   const eyebrow = $("span", clashVerdict);
   const headline = $("strong", clashVerdict);
 
@@ -703,12 +1095,14 @@ function setVerdict(clash) {
     clashVerdict.classList.add("is-null");
     eyebrow.textContent = "BOUNDLESS × BOUNDLESS";
     headline.textContent = "MUTUAL NULLIFICATION — BOTH CANCELLED";
+    battleAnnouncer.textContent = headline.textContent;
     return;
   }
   if (clash.winner === 0) {
     clashVerdict.classList.add("is-null");
     eyebrow.textContent = `${formatHealth(clash.leftHealthBefore)} = ${formatHealth(clash.rightHealthBefore)}`;
     headline.textContent = "EQUAL HEALTH — DOUBLE KNOCKOUT";
+    battleAnnouncer.textContent = headline.textContent;
     return;
   }
 
@@ -717,8 +1111,15 @@ function setVerdict(clash) {
   const winnerBefore = clash.winner === 1 ? clash.leftHealthBefore : clash.rightHealthBefore;
   const loserBefore = clash.winner === 1 ? clash.rightHealthBefore : clash.leftHealthBefore;
   const winnerAfter = clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter;
+  const verdict = clash.verdict === "boundless-overmatch" ? "BOUNDLESS SOLO" : severityCopy[clash.severity] || "VICTORY";
+  clashVerdict.style.setProperty("--winner-color", clash.winner === 1 ? "var(--p1)" : "var(--p2)");
   eyebrow.textContent = `${formatHealth(winnerBefore)} − ${formatHealth(loserBefore)}`;
-  headline.textContent = `${winner.name.toUpperCase()} HOLDS · ${formatHealth(winnerAfter)} HEALTH`;
+  headline.textContent = `${verdict} · ${winner.name.toUpperCase()} HOLDS ${formatHealth(winnerAfter)} HEALTH`;
+  battleAnnouncer.textContent = headline.textContent;
+  if (clash.severity === "brutal" || clash.severity === "soloed") {
+    defeatStamp.textContent = clash.severity === "soloed" ? "SOLOED" : "BRUTAL";
+    clashArena.classList.add("show-defeat");
+  }
 }
 
 async function playBattle() {
@@ -752,17 +1153,25 @@ async function playBattle() {
       rightContinuing ? "P2 · SURVIVOR" : `P2 · #${clash.rightIndex + 1}`,
       { current: clash.rightHealthBefore, maximum: rightMaximum },
     ));
-    clashArena.classList.remove("is-loaded", "is-impact");
+    clashArena.classList.remove("is-loaded", "is-impact", "show-defeat", ...severityClasses);
+    clashArena.style.removeProperty("--winner-color");
+    if (clash.winner) clashArena.style.setProperty("--winner-color", clash.winner === 1 ? "var(--p1)" : "var(--p2)");
+    clashArena.classList.add(`severity-${clash.severity}`);
+    defeatStamp.textContent = "";
+    battleAnnouncer.textContent = "";
     clashVerdict.className = "clash-verdict";
+    delete clashVerdict.dataset.severity;
+    clashVerdict.style.removeProperty("--winner-color");
     $("span", clashVerdict).textContent = "POWER READINGS LOCKED";
     $("strong", clashVerdict).textContent = "PREPARE FOR IMPACT";
     void clashArena.offsetWidth;
     requestAnimationFrame(() => clashArena.classList.add("is-loaded"));
+    sound.charge(clash.severity);
 
     await wait(motionTime(760, 45));
     if (token !== state.battleToken) return;
     clashArena.classList.add("is-impact");
-    sound.impact(clash.leftHealthBefore, clash.rightHealthBefore);
+    sound.impact(clash.leftHealthBefore, clash.rightHealthBefore, clash.severity);
 
     await wait(motionTime(690, 45));
     if (token !== state.battleToken) return;
@@ -772,8 +1181,10 @@ async function playBattle() {
     battleScoreOne.textContent = String(clash.remainingOne);
     battleScoreTwo.textContent = String(clash.remainingTwo);
     if (clash.reason === "boundless-nullification") sound.nullify();
-    else sound.drain(true);
-    sound.verdict(clash.winner);
+    else {
+      sound.drain(true);
+      sound.defeat(clash.severity, clash.winner);
+    }
 
     await wait(motionTime(1280, 55));
   }
@@ -804,11 +1215,12 @@ function showResult() {
   battle.timeline.forEach((clash, index) => {
     const row = document.createElement("div");
     row.className = "result-row";
+    row.dataset.severity = clash.severity;
     const label = clash.reason === "boundless-nullification"
       ? "NULLIFIED"
       : clash.winner === 0
         ? "DOUBLE KO"
-        : `P${clash.winner} · ${formatHealth(clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter)} LEFT`;
+        : `P${clash.winner} ${severityCopy[clash.severity]} · ${formatHealth(clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter)} LEFT`;
     row.innerHTML = `
       <span>${escapeHtml(clash.left.name)}</span>
       <b class="${clash.winner ? "win" : ""}">0${index + 1} · ${label}</b>
@@ -855,7 +1267,8 @@ soundToggle.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if ((event.code === "Space" || event.code === "Enter") && document.activeElement === document.body) {
+  const focusAllowsShortcut = document.activeElement === document.body || document.activeElement?.classList.contains("screen");
+  if ((event.code === "Space" || event.code === "Enter") && focusAllowsShortcut) {
     const current = screens.find((screen) => !screen.hidden)?.id;
     const action = {
       "start-screen": startGameButton,

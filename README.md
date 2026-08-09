@@ -17,12 +17,15 @@ A same-device, pass-and-play 3v3 multiverse draft. Each player privately spins t
 - Anime — 100 fighters: 30 Jujutsu Kaisen, 30 Naruto/Boruto, 30 One Piece, and 10 Dragon Ball
 - Marvel — 50 characters in powerful comic forms
 - DC — 50 characters in powerful comic forms
+- Video Game Legends — 50 characters in their strongest game forms
 - Fiction & Toon Menaces — 50 characters from outside the other pools
 
-The category wheel uses 30% Anime, 30% Marvel, 30% DC, and 10% Menaces odds. Rankings and power levels are fictional, subjective, and designed only for this fan-made game.
+The category wheel uses 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, and 10% Menaces odds. Rankings and power levels are fictional, subjective, and designed only for this fan-made game.
 
 ## Technical notes
 
-The game is static HTML, CSS, and JavaScript with no build step or online multiplayer. Sound effects are synthesized in the browser. Selected character images are requested from English Wikipedia when available and fall back to styled initials when unavailable.
+The game is static HTML, CSS, and JavaScript with no build step or online multiplayer. Layered sound effects are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
 
 Run locally with any static server, then open its URL in a modern browser. The production site publishes directly from the `main` branch through GitHub Pages.
+
+Every update follows the test-fix-retest requirements in [CONTRIBUTING.md](CONTRIBUTING.md).

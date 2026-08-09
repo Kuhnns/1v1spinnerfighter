@@ -1,11 +1,15 @@
 export const BOUNDLESS_BEAT_MS = 5000;
-export const CUSTOM_TRACK_START_SECONDS = 35;
-export const CUSTOM_TRACK_MIN_DURATION_SECONDS = 55;
+export const BOUNDLESS_TRACK_START_SECONDS = 35;
+export const BOUNDLESS_TRACK_CLIP_SECONDS = 30;
+export const BOUNDLESS_TRACK_PREP_TIMEOUT_MS = 12000;
+export const BOUNDLESS_MUSIC_FADE_IN_SECONDS = 2;
+export const BOUNDLESS_MUSIC_FADE_OUT_SECONDS = 1.8;
+export const BOUNDLESS_OUTRO_MS = 2000;
 
 export const BATTLE_PACE = Object.freeze({
   entrance: 900,
   dialogue: 1000,
-  tap: 700,
+  charge: 700,
   impact: 900,
   response: 1300,
   finish: 700,
@@ -14,9 +18,10 @@ export const BATTLE_PACE = Object.freeze({
 export const BOUNDLESS_CUES = Object.freeze([
   Object.freeze({ at: 0, cue: "left-dialogue", side: 1, focus: "left", copy: "LET’S USE EVERY LAST DROP." }),
   Object.freeze({ at: BOUNDLESS_BEAT_MS, cue: "right-dialogue", side: 2, focus: "right", copy: "JUST THIS ONCE." }),
-  Object.freeze({ at: BOUNDLESS_BEAT_MS * 2, cue: "windup", side: 0, focus: "both", copy: "TAP TAP" }),
-  Object.freeze({ at: BOUNDLESS_BEAT_MS * 3, cue: "impact", side: 0, focus: "both", copy: "CLASH" }),
-  Object.freeze({ at: BOUNDLESS_BEAT_MS * 4, cue: "verdict", side: 0, focus: "both", copy: "DOUBLE KO" }),
+  Object.freeze({ at: BOUNDLESS_BEAT_MS * 2, cue: "power-rise", side: 0, focus: "both", copy: "INFINITE POWER RISING" }),
+  Object.freeze({ at: BOUNDLESS_BEAT_MS * 3, cue: "beam-release", side: 0, focus: "both", copy: "TWIN BEAMS RELEASED" }),
+  Object.freeze({ at: BOUNDLESS_BEAT_MS * 4, cue: "beam-collision", side: 0, focus: "both", copy: "REALITY COLLAPSES" }),
+  Object.freeze({ at: BOUNDLESS_BEAT_MS * 5, cue: "annihilation", side: 0, focus: "both", copy: "MUTUAL ANNIHILATION" }),
 ]);
 
 export function eventDialogue(event, phase, options = {}) {

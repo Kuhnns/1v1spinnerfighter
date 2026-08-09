@@ -22,9 +22,9 @@ A 3v3 multiverse draft with Pass & Play, a solo bot opponent, live peer-to-peer 
 ## Battle presentation
 
 - Every spoken line and internal reaction appears in a manga speech, shout, or thought bubble above the fighter who owns it. The center panel is narration only.
-- Ordinary actions use a readable dialogue → TAP TAP → impact → reaction cadence, with comic-panel framing and camera focus that preserve the underlying fighter cards.
-- A full Boundless-versus-Boundless clash follows five exact five-second cues: left dialogue, right dialogue, shared windup, impact, and Double KO.
-- The reveal screen can load a local audio file you have permission to play. It never leaves the device, must be at least 55 seconds long, and begins at `0:35` for each Boundless clash. When no valid local file is selected, the game uses its built-in original dramatic score.
+- Ordinary actions use a readable dialogue → power charge → impact → reaction cadence, with comic-panel framing and camera focus that preserve the underlying fighter cards.
+- A full Boundless-versus-Boundless sequence follows six exact five-second cues: close-up left dialogue, close-up right dialogue, rising team energy, twin beam release, reality-breaking beam collision, and mutual annihilation.
+- “Jane!” by The Long Faces is bundled as the automatic Boundless soundtrack. It begins at `0:35`, fades in beneath the dialogue, and fades out as both fighters are destroyed; players do not choose or upload a track.
 
 ## Roster
 
@@ -38,7 +38,7 @@ The category wheel uses 25% Anime, 25% Marvel, 25% DC, 15% Video Game Legends, a
 
 ## Technical notes
 
-The game is static HTML, CSS, and JavaScript with no build step. Online matchmaking and match messages use lazily loaded, encrypted WebRTC peer connections; local and bot modes do not load the online transport. Public lobbies are live and ephemeral, so a host must keep the lobby open and refreshes or closed tabs end the current match. Layered sound effects and the fallback clash score are synthesized in the browser. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
+The game is static HTML, CSS, and JavaScript with no build step. Online matchmaking and match messages use lazily loaded, encrypted WebRTC peer connections; local and bot modes do not load the online transport. Public lobbies are live and ephemeral, so a host must keep the lobby open and refreshes or closed tabs end the current match. Layered sound effects are synthesized in the browser, and the bundled Boundless soundtrack is decoded locally after a player gesture. Character art uses a cached multi-source fallback chain and falls back to styled initials when no public source has an image.
 
 Run locally with any static server, then open its URL in a modern browser. The production site publishes directly from the `main` branch through GitHub Pages.
 

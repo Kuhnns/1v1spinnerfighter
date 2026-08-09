@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,7 @@ const html = await readFile(resolve(root, "index.html"), "utf8");
 const script = await readFile(resolve(root, "script.js"), "utf8");
 const styles = await readFile(resolve(root, "styles.css"), "utf8");
 const online = await readFile(resolve(root, "online-network.js"), "utf8");
+const boundlessTrack = await readFile(resolve(root, "assets/the-long-faces-jane.mp3"));
 
 const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
 assert.equal(new Set(ids).size, ids.length, "HTML IDs must be unique");
@@ -23,6 +25,7 @@ const requiredFiles = [
   "data/menaces.js",
   "data/stats.js",
   "data/video-games.js",
+  "assets/the-long-faces-jane.mp3",
   "og.png",
 ];
 await Promise.all(requiredFiles.map((file) => access(resolve(root, file))));
@@ -64,17 +67,21 @@ assert.match(html, /id="battle-announcer"[^>]*aria-live="polite"[^>]*aria-atomic
 for (const bubbleId of ["battle-bubble-one", "battle-bubble-two"]) {
   assert.match(html, new RegExp(`id="${bubbleId}"[^>]*aria-hidden="true"`));
 }
-for (const trackId of ["clash-track-input", "clash-track-load", "clash-track-clear", "clash-track-status"]) {
-  assert.ok(ids.includes(trackId), `${trackId} must exist`);
+for (const removedTrackId of ["clash-track-input", "clash-track-load", "clash-track-clear", "clash-track-status"]) {
+  assert.ok(!ids.includes(removedTrackId), `${removedTrackId} must stay removed`);
 }
+assert.match(html, /class="clash-track-credit"/);
+assert.match(html, /JANE! · THE LONG FACES/);
+assert.match(html, /AUTOMATIC CUE AT 0:35 · CINEMATIC FADE IN \/ OUT/);
+assert.doesNotMatch(html, /\bTAP TAP\b|class="comic-sfx"/i, "The retired tap stamps must not be visible in the DOM");
 assert.match(html, /id="category-wheel"[\s\S]*class="wheel-legend"[\s\S]*<\/div>\s*<\/div>\s*<div class="reel-stage"/);
 assert.match(script, /import \{ videoGameCharacters \} from "\.\/data\/video-games\.js\?v=[^"]+"/);
-assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-6"/);
-assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-6"/);
-assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-6"/);
+assert.match(script, /OnlineLobbyNetwork[\s\S]+from "\.\/online-network\.js\?v=20260809-7"/);
+assert.match(script, /getCharacterStats[\s\S]+from "\.\/data\/stats\.js\?v=20260809-7"/);
+assert.match(script, /eventDialogue[\s\S]+from "\.\/battle-presentation\.js\?v=20260809-7"/);
 const outerScriptVersion = html.match(/src="script\.js\?v=([^"]+)"/)?.[1];
 const outerStyleVersion = html.match(/href="styles\.css\?v=([^"]+)"/)?.[1];
-assert.equal(outerScriptVersion, "20260809-6");
+assert.equal(outerScriptVersion, "20260809-7");
 assert.equal(outerStyleVersion, outerScriptVersion, "Outer CSS and JS cache keys must match");
 const importedVersions = [...script.matchAll(/from "\.\/[^"]+\?v=([^"]+)"/g)].map((match) => match[1]);
 assert.ok(importedVersions.length >= 8);
@@ -124,26 +131,35 @@ assert.match(script, /state\.battleAbortController\.abort\(\)/, "Cancelling a ba
 assert.match(script, /waitForBattleCue\(epoch, cue\.at, token\)/, "Boundless cues must share one epoch to prevent drift");
 assert.match(script, /renderEventDialogue\(event, "preview"\)/);
 assert.match(script, /renderEventDialogue\(event, "verdict"\)/);
-assert.match(script, /source\.start\(this\.context\.currentTime, CUSTOM_TRACK_START_SECONDS\)/, "Local licensed audio must start at 0:35");
-assert.match(script, /decoded\.duration < CUSTOM_TRACK_MIN_DURATION_SECONDS/, "A local track must cover the full cinematic after 0:35");
-assert.match(script, /const loadGeneration = \+\+this\.customTrackLoadGeneration/, "Every local audio decode needs a unique generation");
-assert.match(script, /assertCurrentTrackLoad\(loadGeneration\)/, "A cleared or replaced local audio decode must not restore itself later");
-assert.match(script, /clearCustomTrack\(\) \{\s+this\.customTrackLoadGeneration \+= 1;/, "Clearing local audio must invalidate any in-flight decode");
+assert.equal(boundlessTrack.length, 2_947_376, "The bundled soundtrack bytes changed unexpectedly");
+assert.equal(
+  createHash("sha256").update(boundlessTrack).digest("hex"),
+  "55be9de9c3add7566db433a7a82bc69aed8aeac1832fe4bbd7a93ba57c1f2135",
+  "The bundled soundtrack must remain the exact supplied upload",
+);
+assert.match(script, /new URL\("\.\/assets\/the-long-faces-jane\.mp3\?v=20260809-7", import\.meta\.url\)/);
+assert.match(script, /const startFrame = Math\.floor\(BOUNDLESS_TRACK_START_SECONDS \* decoded\.sampleRate\)/, "The bundled song must be clipped from 0:35");
+assert.match(script, /const clipFrames = Math\.floor\(BOUNDLESS_TRACK_CLIP_SECONDS \* decoded\.sampleRate\)/);
+assert.match(script, /this\.context\.createBuffer\(decoded\.numberOfChannels, clipFrames, decoded\.sampleRate\)/, "Only the cinematic window should remain decoded in memory");
+assert.match(script, /decoded\.copyFromChannel\(clip\.getChannelData\(channel\), channel, startFrame\)/);
+assert.match(script, /source\.start\(now\)/, "The pre-clipped 0:35 soundtrack window must start with the cinematic");
+assert.match(script, /gain\.gain\.setValueAtTime\(0\.0001, now\)[\s\S]+exponentialRampToValueAtTime\(0\.54, now \+ BOUNDLESS_MUSIC_FADE_IN_SECONDS\)/);
+assert.match(script, /const controller = new AbortController\(\)[\s\S]+controller\.abort\(\)[\s\S]+BOUNDLESS_TRACK_PREP_TIMEOUT_MS/, "A stalled mobile soundtrack request must time out");
+assert.match(script, /if \(this\.boundlessTrackUnavailable\) return false;/, "A failed soundtrack must not retry before each Boundless duel");
+assert.match(script, /const epoch = performance\.now\(\);[\s\S]+sound\.startBoundlessScore\(\)/);
+assert.match(script, /sound\.stopCinematicScore\(BOUNDLESS_MUSIC_FADE_OUT_SECONDS\)/, "Annihilation must fade out the bundled song");
+assert.match(script, /scoreState = scoreKind === "muted" \? "muted" : "fading"/, "The fade state must stay inspectable in browser QA");
+assert.doesNotMatch(script, /loadCustomTrack|clearCustomTrack|customTrackLoadGeneration|clashTrackInput|loadClashTrack/);
 assert.match(
   script,
-  /async function loadClashTrack[\s\S]+clashTrackClear\.disabled = true;[\s\S]+beginBattle\.disabled = true;[\s\S]+finally \{[\s\S]+beginBattle\.disabled = false;/,
-  "Clear and Begin Battle controls must be gated while local audio is decoding",
+  /const needsBoundlessTrack = preparedBattle\?\.events\.some[\s\S]+if \(needsBoundlessTrack\)[\s\S]+try \{\s+await sound\.prepareBoundlessTrack\(\);\s+\} finally \{[\s\S]+beginBattle\.disabled = false;/,
+  "Only a Boundless battle may gate Begin while the bundled song decodes, and the control must recover in finally",
 );
-assert.match(
-  script,
-  /const uiGeneration = \+\+clashTrackUiGeneration;[\s\S]+finally \{\s+if \(uiGeneration !== clashTrackUiGeneration\) return;/,
-  "A stale decode must not unlock controls owned by a newer local-track request",
-);
-assert.match(script, /sound\.stopCinematicScore\(\)/, "The Boundless score must stop at the cinematic verdict");
-assert.match(script, /window\.addEventListener\("pagehide"[\s\S]+sound\.clearCustomTrack\(\)/, "Leaving the page must clear local audio and pending battle work");
+assert.match(script, /stopCinematicScore\(fadeSeconds = 0\.08\)[\s\S]+source\.stop\(now \+ fade \+ 0\.06\)/, "Skip and Reset need a short soundtrack fade");
+assert.match(script, /window\.addEventListener\("pagehide"[\s\S]+cancelBattlePresentation\(\)/, "Leaving the page must stop soundtrack and pending battle work");
 assert.match(script, /skipBattle\.addEventListener\("click"[\s\S]+cancelBattlePresentation\(\)/, "Skip must cancel dialogue timers and music before showing the result");
 assert.doesNotMatch(script, /headline\.textContent\s*=\s*`[^`]*[“”]/, "Central narration must not contain character dialogue");
-for (const soundMethod of ["blitz", "powerClash", "boundlessClash", "immune"]) {
+for (const soundMethod of ["blitz", "powerClash", "dialogueCue", "boundlessRise", "beamRelease", "beamCollision", "boundlessAnnihilation", "immune"]) {
   assert.match(script, new RegExp(`sound\\.${soundMethod}\\(`), `${soundMethod} sound must be used by the battle presentation`);
 }
 assert.match(online, /https:\/\/esm\.run\/@trystero-p2p\/mqtt@0\.25\.3/);
@@ -154,7 +170,7 @@ for (const [id, center] of [["anime", 45], ["marvel", 135], ["dc", 225], ["games
   assert.match(script, new RegExp(`id: "${id}"[^\n]+center: ${center}`), `${id} must be wired to its wheel-sector center`);
 }
 assert.match(script, /clashArena\.classList\.add\(`severity-\$\{matchup\.severity\}`\)/);
-for (const staleClass of ["is-impact", "show-defeat", "is-boundless-clash", "is-immune", "is-last-stand"]) {
+for (const staleClass of ["is-impact", "show-defeat", "is-boundless-clash", "is-power-rise", "is-beam-release", "is-beam-collision", "is-annihilation", "is-immune", "is-last-stand"]) {
   assert.match(
     script,
     new RegExp(`const battlePresentationClasses = \\[[\\s\\S]+?"${staleClass}"`),
@@ -184,12 +200,18 @@ assert.match(styles, /\.online-browser-panel/);
 assert.match(styles, /\.fighter-stats/);
 assert.match(styles, /\.lineup-stats/);
 assert.match(styles, /\.sandbox-slot-portrait/);
-for (const comicClass of ["manga-bubble", "manga-panel-grid", "comic-sfx", "manga-caption", "battle-lane"]) {
+for (const comicClass of ["manga-bubble", "manga-panel-grid", "manga-caption", "battle-lane", "boundless-effects", "power-beam", "beam-collision-core"]) {
   assert.match(styles, new RegExp(`\\.${comicClass}`), `${comicClass} needs a visual treatment`);
 }
 for (const effectClass of ["is-speed-blitz", "is-extreme-blitz", "is-power-clash", "is-boundless-clash", "is-immune", "is-last-stand"]) {
   assert.match(styles, new RegExp(`\\.${effectClass}`), `${effectClass} needs a visual treatment`);
 }
+assert.doesNotMatch(styles, /\.comic-sfx|@keyframes comic-tap/);
+assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]+\.clash-arena\.is-beam-release \.power-beam/);
+assert.match(styles, /\.clash-arena\.is-annihilation \.battle-lane \.fighter-card[\s\S]+animation: none !important/);
+assert.match(styles, /\.battle-card-slot \.fighter-card \{ width: min\(38vw, 100%\);/, "Phone cards must leave room for close-up scaling inside their grid tracks");
+const boundlessDirector = script.slice(script.indexOf("async function playBoundlessCinematic"), script.indexOf("async function playBattle"));
+assert.doesNotMatch(boundlessDirector, /sound\.tap\(/, "Boundless dialogue must not use the retired tap sound");
 assert.doesNotMatch(html, /AUTO-SORTED BY POWER|POWER BECOMES|Strongest enters first/);
 assert.match(
   styles,

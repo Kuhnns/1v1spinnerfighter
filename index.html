@@ -19,8 +19,8 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
     <title>1v1 Spinner Fighter — Spin, Sandbox &amp; Battle</title>
-    <link rel="stylesheet" href="styles.css?v=20260809-6" />
-    <script type="module" src="script.js?v=20260809-6"></script>
+    <link rel="stylesheet" href="styles.css?v=20260809-7" />
+    <script type="module" src="script.js?v=20260809-7"></script>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -414,14 +414,10 @@
         </div>
         <div class="center-action">
           <p>Fighters enter in squad order. Speed sets the first strike, Strength attacks Durability, and each survivor carries their remaining health into the next duel.</p>
-          <div class="clash-track-setup" aria-labelledby="clash-track-title">
-            <div>
-              <b id="clash-track-title">BOUNDLESS CLASH TRACK</b>
-              <small id="clash-track-status" role="status" aria-live="polite">ORIGINAL DRAMATIC SCORE ACTIVE · OPTIONAL LOCAL AUDIO STARTS AT 0:35</small>
-            </div>
-            <input id="clash-track-input" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg" hidden />
-            <button class="secondary-button" id="clash-track-load" type="button">LOAD LICENSED AUDIO</button>
-            <button class="text-button" id="clash-track-clear" type="button" hidden>USE ORIGINAL SCORE</button>
+          <div class="clash-track-credit" aria-label="Boundless soundtrack: Jane! by The Long Faces, automatically cued from 35 seconds">
+            <b>BOUNDLESS SOUNDTRACK</b>
+            <span>JANE! · THE LONG FACES</span>
+            <small>AUTOMATIC CUE AT 0:35 · CINEMATIC FADE IN / OUT</small>
           </div>
           <button class="primary-button" id="begin-battle" type="button">BEGIN ENDURANCE CLASH</button>
         </div>
@@ -439,7 +435,14 @@
           <div class="impact-ring" aria-hidden="true"></div>
           <div class="impact-rift" aria-hidden="true"></div>
           <div class="defeat-stamp" id="defeat-stamp" aria-hidden="true"></div>
-          <div class="comic-sfx" id="comic-sfx" aria-hidden="true"><span>TAP</span><span>TAP</span></div>
+          <div class="boundless-effects" id="boundless-effects" aria-hidden="true">
+            <div class="power-ooze ooze-one"><i></i><i></i><i></i></div>
+            <div class="power-ooze ooze-two"><i></i><i></i><i></i></div>
+            <div class="power-beam beam-one"><i></i><span></span></div>
+            <div class="power-beam beam-two"><i></i><span></span></div>
+            <div class="beam-collision-core"><i></i><span></span></div>
+            <div class="reality-shards"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
           <div class="battle-lane left" id="battle-lane-one">
             <div class="manga-bubble left" id="battle-bubble-one" data-kind="speech" aria-hidden="true" hidden>
               <span id="battle-bubble-one-speaker">PLAYER 1</span>

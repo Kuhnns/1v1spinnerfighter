@@ -1,35 +1,39 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-6";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-6";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-6";
-import { getCharacterStats } from "./data/stats.js?v=20260809-6";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-6";
+import { animeCharacters } from "./data/anime.js?v=20260809-7";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-7";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-7";
+import { getCharacterStats } from "./data/stats.js?v=20260809-7";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-7";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
   draftAutomatedTeam,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-6";
+} from "./game-logic.js?v=20260809-7";
 import {
   formatLobbyCodeInput,
   OnlineLobbyNetwork,
   normalizeLobbyCode,
   sanitizePlayerName,
-} from "./online-network.js?v=20260809-6";
+} from "./online-network.js?v=20260809-7";
 import {
   BATTLE_PACE,
   BOUNDLESS_BEAT_MS,
   BOUNDLESS_CUES,
-  CUSTOM_TRACK_MIN_DURATION_SECONDS,
-  CUSTOM_TRACK_START_SECONDS,
+  BOUNDLESS_MUSIC_FADE_IN_SECONDS,
+  BOUNDLESS_MUSIC_FADE_OUT_SECONDS,
+  BOUNDLESS_OUTRO_MS,
+  BOUNDLESS_TRACK_CLIP_SECONDS,
+  BOUNDLESS_TRACK_PREP_TIMEOUT_MS,
+  BOUNDLESS_TRACK_START_SECONDS,
   eventDialogue,
-} from "./battle-presentation.js?v=20260809-6";
+} from "./battle-presentation.js?v=20260809-7";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 const REDUCED_MOTION_AUDIO_SCALE = 0.035;
-const MAX_LOCAL_TRACK_BYTES = 60 * 1024 * 1024;
+const BOUNDLESS_TRACK_URL = new URL("./assets/the-long-faces-jane.mp3?v=20260809-7", import.meta.url).href;
 
 function combatRoster(roster, categoryId, categoryLabel) {
   return roster.map((fighter) => {
@@ -121,10 +125,6 @@ const p2Total = $("#p2-total");
 const sideOneLabel = $("#side-one-label");
 const sideTwoLabel = $("#side-two-label");
 const beginBattle = $("#begin-battle");
-const clashTrackInput = $("#clash-track-input");
-const clashTrackLoad = $("#clash-track-load");
-const clashTrackClear = $("#clash-track-clear");
-const clashTrackStatus = $("#clash-track-status");
 const battleScoreOne = $("#battle-score-one");
 const battleScoreTwo = $("#battle-score-two");
 const battleSideOneLabel = $("#battle-side-one-label");
@@ -133,7 +133,6 @@ const clashNumber = $("#clash-number");
 const clashTotal = $("#clash-total");
 const clashArena = $("#clash-arena");
 const defeatStamp = $("#defeat-stamp");
-const comicSfx = $("#comic-sfx");
 const battleLanes = [$("#battle-lane-one"), $("#battle-lane-two")];
 const battleBubbles = [$("#battle-bubble-one"), $("#battle-bubble-two")];
 const battleBubbleSpeakers = [$("#battle-bubble-one-speaker"), $("#battle-bubble-two-speaker")];
@@ -168,7 +167,10 @@ const battlePresentationClasses = [
   "is-impact",
   "is-windup",
   "is-panel-impact",
-  "is-tap-beat",
+  "is-power-rise",
+  "is-beam-release",
+  "is-beam-collision",
+  "is-annihilation",
   "show-defeat",
   "is-speed-blitz",
   "is-extreme-blitz",
@@ -214,7 +216,6 @@ let sandboxImageObserver = null;
 let onlineNetwork = null;
 let onlineNetworkName = "";
 let pendingOnlineTeamIds = null;
-let clashTrackUiGeneration = 0;
 
 class SoundEngine {
   constructor() {
@@ -223,9 +224,9 @@ class SoundEngine {
     this.compressor = null;
     this.activeNodes = new Set();
     this.scoreNodes = new Set();
-    this.customTrackBuffer = null;
-    this.customTrackName = "";
-    this.customTrackLoadGeneration = 0;
+    this.boundlessTrackBuffer = null;
+    this.boundlessTrackPromise = null;
+    this.boundlessTrackUnavailable = false;
     this.musicSource = null;
     this.musicGain = null;
     this.enabled = readSoundPreference();
@@ -294,18 +295,26 @@ class SoundEngine {
     this.stopNodes(this.activeNodes);
   }
 
-  stopCinematicScore() {
+  stopCinematicScore(fadeSeconds = 0.08) {
     this.stopNodes(this.scoreNodes);
     if (this.musicSource) {
+      const source = this.musicSource;
+      const gain = this.musicGain;
       try {
-        this.musicGain?.gain.setTargetAtTime(0.0001, this.context.currentTime, 0.02);
-        this.musicSource.stop(this.context.currentTime + 0.08);
+        const now = this.context.currentTime;
+        const fade = Math.max(0.04, Number(fadeSeconds) || 0.08);
+        if (gain) {
+          if (typeof gain.gain.cancelAndHoldAtTime === "function") gain.gain.cancelAndHoldAtTime(now);
+          else gain.gain.cancelScheduledValues(now);
+          gain.gain.setTargetAtTime(0.0001, now, Math.max(0.01, fade / 4));
+        }
+        source.stop(now + fade + 0.06);
       } catch {
         // The source may already have ended.
       }
+      // Keep the active handle until `ended` so Skip, Reset, or a mode change can
+      // shorten a cinematic fade that is already in progress.
     }
-    this.musicSource = null;
-    this.musicGain = null;
   }
 
   stopAll() {
@@ -313,42 +322,50 @@ class SoundEngine {
     this.stopCinematicScore();
   }
 
-  async loadCustomTrack(file) {
-    const extensionLooksAudio = /\.(?:mp3|m4a|wav|ogg)$/i.test(file?.name || "");
-    if (!(file instanceof File) || (!file.type.startsWith("audio/") && !extensionLooksAudio)) {
-      throw new Error("Choose an MP3, M4A, WAV, or OGG audio file.");
-    }
-    if (file.size > MAX_LOCAL_TRACK_BYTES) throw new Error("Choose an audio file smaller than 60 MB.");
-    const loadGeneration = ++this.customTrackLoadGeneration;
-    this.stopCinematicScore();
-    this.customTrackBuffer = null;
-    this.customTrackName = "";
+  async prepareBoundlessTrack() {
+    if (!this.enabled) return false;
+    if (this.boundlessTrackBuffer) return true;
+    if (this.boundlessTrackUnavailable) return false;
+    if (this.boundlessTrackPromise) return this.boundlessTrackPromise;
     this.arm();
-    if (!this.context) throw new Error("This browser cannot decode local audio.");
-    const encoded = await file.arrayBuffer();
-    this.assertCurrentTrackLoad(loadGeneration);
-    const decoded = await this.context.decodeAudioData(encoded.slice(0));
-    this.assertCurrentTrackLoad(loadGeneration);
-    if (decoded.duration < CUSTOM_TRACK_MIN_DURATION_SECONDS) {
-      throw new Error("Choose a track at least 55 seconds long.");
-    }
-    this.customTrackBuffer = decoded;
-    this.customTrackName = file.name;
-    return this.customTrackName;
-  }
-
-  assertCurrentTrackLoad(loadGeneration) {
-    if (loadGeneration === this.customTrackLoadGeneration) return;
-    const error = new Error("Audio selection canceled.");
-    error.name = "AbortError";
-    throw error;
-  }
-
-  clearCustomTrack() {
-    this.customTrackLoadGeneration += 1;
-    this.stopCinematicScore();
-    this.customTrackBuffer = null;
-    this.customTrackName = "";
+    if (!this.context) return false;
+    const controller = new AbortController();
+    let timeoutId;
+    const timeout = new Promise((resolve) => {
+      timeoutId = window.setTimeout(() => {
+        this.boundlessTrackUnavailable = true;
+        controller.abort();
+        resolve(false);
+      }, BOUNDLESS_TRACK_PREP_TIMEOUT_MS);
+    });
+    const preparation = fetch(BOUNDLESS_TRACK_URL, { cache: "force-cache", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Soundtrack request failed with ${response.status}.`);
+        return response.arrayBuffer();
+      })
+      .then((encoded) => this.context.decodeAudioData(encoded.slice(0)))
+      .then((decoded) => {
+        if (this.boundlessTrackUnavailable) return false;
+        const startFrame = Math.floor(BOUNDLESS_TRACK_START_SECONDS * decoded.sampleRate);
+        const clipFrames = Math.floor(BOUNDLESS_TRACK_CLIP_SECONDS * decoded.sampleRate);
+        if (decoded.length < startFrame + clipFrames) throw new Error("The bundled soundtrack is shorter than its cinematic cue window.");
+        const clip = this.context.createBuffer(decoded.numberOfChannels, clipFrames, decoded.sampleRate);
+        for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
+          decoded.copyFromChannel(clip.getChannelData(channel), channel, startFrame);
+        }
+        this.boundlessTrackBuffer = clip;
+        return true;
+      });
+    this.boundlessTrackPromise = Promise.race([preparation, timeout])
+      .catch((error) => {
+        this.boundlessTrackUnavailable = true;
+        if (error?.name !== "AbortError") console.warn("The bundled Boundless soundtrack could not be prepared; using the original score.");
+        return false;
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+      });
+    return this.boundlessTrackPromise;
   }
 
   originalBoundlessScore() {
@@ -367,15 +384,17 @@ class SoundEngine {
   startBoundlessScore() {
     if (!this.enabled) return "muted";
     this.stopCinematicScore();
-    if (!this.customTrackBuffer) return this.originalBoundlessScore();
+    if (!this.boundlessTrackBuffer) return this.originalBoundlessScore();
     try {
       this.arm();
       const source = this.context.createBufferSource();
       const gain = this.context.createGain();
-      source.buffer = this.customTrackBuffer;
-      gain.gain.value = 0.58;
+      const now = this.context.currentTime;
+      source.buffer = this.boundlessTrackBuffer;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.54, now + BOUNDLESS_MUSIC_FADE_IN_SECONDS);
       source.connect(gain).connect(this.master);
-      source.start(this.context.currentTime, CUSTOM_TRACK_START_SECONDS);
+      source.start(now);
       source.addEventListener("ended", () => {
         if (this.musicSource === source) {
           this.musicSource = null;
@@ -384,7 +403,7 @@ class SoundEngine {
       }, { once: true });
       this.musicSource = source;
       this.musicGain = gain;
-      return "custom";
+      return "jane";
     } catch {
       return this.originalBoundlessScore();
     }
@@ -394,9 +413,15 @@ class SoundEngine {
     this.tone(260, 0.045, { type: "square", volume: 0.018, endFrequency: 190 });
   }
 
-  mangaTap() {
-    this.tone(310, 0.075, { type: "square", volume: 0.022, endFrequency: 155 });
-    this.tone(360, 0.09, { delay: 0.28, type: "square", volume: 0.024, endFrequency: 145 });
+  dialogueCue(side = 1) {
+    const root = side === 2 ? 330 : 390;
+    this.tone(root, 0.16, { type: "triangle", volume: 0.012, endFrequency: root * 1.16 });
+    this.tone(root * 1.5, 0.11, { delay: 0.055, type: "sine", volume: 0.009, endFrequency: root * 1.28 });
+  }
+
+  energyPulse() {
+    this.tone(150, 0.34, { type: "sawtooth", volume: 0.016, endFrequency: 520 });
+    this.tone(210, 0.42, { delay: 0.09, type: "triangle", volume: 0.02, endFrequency: 820 });
   }
 
   wheel() {
@@ -542,7 +567,28 @@ class SoundEngine {
     this.tone(840, 0.42, { delay: 0.04, type: "square", volume: 0.026, endFrequency: 120 });
   }
 
-  boundlessClash() {
+  boundlessRise() {
+    [72, 108, 144, 216].forEach((note, index) => {
+      this.tone(note, 1.8, {
+        delay: index * 0.18,
+        type: index % 2 ? "triangle" : "sine",
+        volume: 0.012 + index * 0.003,
+        endFrequency: note * 2.4,
+      });
+    });
+  }
+
+  beamRelease() {
+    this.tone(95, 2.4, { type: "sawtooth", volume: 0.025, endFrequency: 760 });
+    this.tone(760, 2.1, { delay: 0.08, type: "triangle", volume: 0.018, endFrequency: 130 });
+  }
+
+  beamCollision() {
+    this.tone(64, 3.2, { type: "sine", volume: 0.045, endFrequency: 42 });
+    this.tone(920, 1.4, { type: "sawtooth", volume: 0.022, endFrequency: 110 });
+  }
+
+  boundlessAnnihilation() {
     this.stopEffects();
     [55, 82, 123, 185, 370, 740].forEach((note, index) => {
       this.tone(note, 0.58, {
@@ -786,36 +832,6 @@ function updateSoundButton() {
   soundToggle.setAttribute("aria-pressed", String(sound.enabled));
   soundToggle.setAttribute("aria-label", sound.enabled ? "Mute sound" : "Turn on sound");
   soundToggle.firstElementChild.textContent = sound.enabled ? "SFX" : "OFF";
-}
-
-function showOriginalClashTrackStatus(message = "ORIGINAL DRAMATIC SCORE ACTIVE · OPTIONAL LOCAL AUDIO STARTS AT 0:35") {
-  clashTrackStatus.textContent = message;
-  clashTrackClear.hidden = true;
-}
-
-async function loadClashTrack(file) {
-  const uiGeneration = ++clashTrackUiGeneration;
-  clashTrackLoad.disabled = true;
-  clashTrackClear.disabled = true;
-  beginBattle.disabled = true;
-  clashTrackStatus.textContent = "DECODING LOCAL AUDIO…";
-  try {
-    const name = await sound.loadCustomTrack(file);
-    clashTrackStatus.textContent = `${name.toUpperCase()} READY · STARTS LOCALLY AT 0:35`;
-    clashTrackClear.hidden = false;
-    showToast("Licensed clash track ready. It stays on this device.");
-  } catch (error) {
-    if (error?.name === "AbortError") return;
-    sound.clearCustomTrack();
-    showOriginalClashTrackStatus(error instanceof Error ? `${error.message.toUpperCase()} · ORIGINAL SCORE ACTIVE` : undefined);
-    showToast(error instanceof Error ? error.message : "That audio file could not be loaded.");
-  } finally {
-    if (uiGeneration !== clashTrackUiGeneration) return;
-    clashTrackLoad.disabled = false;
-    clashTrackClear.disabled = false;
-    beginBattle.disabled = false;
-    clashTrackInput.value = "";
-  }
 }
 
 function sideName(index) {
@@ -2276,24 +2292,17 @@ function setBattleCamera(focus = "", beat = "") {
   else delete clashArena.dataset.beat;
 }
 
-function showComicSfx(first = "TAP", second = "TAP") {
-  const words = $$('span', comicSfx);
-  words[0].textContent = first;
-  words[1].textContent = second;
-  comicSfx.classList.remove("is-visible");
-  void comicSfx.offsetWidth;
-  comicSfx.classList.add("is-visible");
-}
-
 function clearBattlePresentation() {
   clearBattleBubbles();
-  comicSfx.classList.remove("is-visible");
   setBattleCamera();
   delete clashArena.dataset.cue;
   delete clashArena.dataset.cueIndex;
   delete clashArena.dataset.eventSequence;
   delete clashArena.dataset.scoreKind;
   delete clashArena.dataset.scoreOffset;
+  delete clashArena.dataset.scoreFadeIn;
+  delete clashArena.dataset.scoreFadeOut;
+  delete clashArena.dataset.scoreState;
   delete clashArena.dataset.lastStand;
   clashArena.classList.remove(...battlePresentationClasses);
   clashArena.style.removeProperty("--winner-color");
@@ -2376,7 +2385,7 @@ function setEventVerdict(event, matchup) {
   if (event.type === "boundless-clash") {
     clashVerdict.classList.add("is-null");
     eyebrow.textContent = "∞ → ??? → 0";
-    headline.textContent = "BOUNDLESS CLASH · DOUBLE KO";
+    headline.textContent = "MUTUAL ANNIHILATION · BOTH ERASED";
   } else if (event.type === "power-clash") {
     eyebrow.textContent = `P1 −${formatPercent(event.leftDamage)}% · P2 −${formatPercent(event.rightDamage)}%`;
     const eliminated = event.leftHealthAfter <= 0 ? left : event.rightHealthAfter <= 0 ? right : null;
@@ -2411,12 +2420,14 @@ function setEventVerdict(event, matchup) {
 
 function setEventEffects(event, matchup, isLastStand) {
   clearBattleBubbles();
-  comicSfx.classList.remove("is-visible");
   clashArena.classList.remove(
     "is-impact",
     "is-windup",
     "is-panel-impact",
-    "is-tap-beat",
+    "is-power-rise",
+    "is-beam-release",
+    "is-beam-collision",
+    "is-annihilation",
     "show-defeat",
     "is-speed-blitz",
     "is-extreme-blitz",
@@ -2460,10 +2471,14 @@ function applyBattleEventOutcome(event, matchup) {
 
 async function playBoundlessCinematic(event, matchup, token) {
   const { left, right } = eventFighters(event);
+  if (token !== state.battleToken || state.battleAbortController?.signal.aborted) return false;
   const epoch = performance.now();
   const scoreKind = sound.startBoundlessScore();
   clashArena.dataset.scoreKind = scoreKind;
-  clashArena.dataset.scoreOffset = String(CUSTOM_TRACK_START_SECONDS);
+  clashArena.dataset.scoreOffset = String(BOUNDLESS_TRACK_START_SECONDS);
+  clashArena.dataset.scoreFadeIn = String(BOUNDLESS_MUSIC_FADE_IN_SECONDS);
+  clashArena.dataset.scoreFadeOut = String(BOUNDLESS_MUSIC_FADE_OUT_SECONDS);
+  clashArena.dataset.scoreState = scoreKind === "muted" ? "muted" : "playing";
 
   for (let cueIndex = 0; cueIndex < BOUNDLESS_CUES.length; cueIndex += 1) {
     const cue = BOUNDLESS_CUES[cueIndex];
@@ -2478,31 +2493,39 @@ async function playBoundlessCinematic(event, matchup, token) {
       showBattleBubble(cue.side, fighter, cue.copy, "shout");
       clashArena.dataset.dialogueSide = String(cue.side);
       battleAnnouncer.textContent = `${fighter.name} says, ${cue.copy}`;
-      sound.tap();
-    } else if (cue.cue === "windup") {
+      sound.dialogueCue(cue.side);
+    } else if (cue.cue === "power-rise") {
       clearBattleBubbles();
-      clashArena.classList.add("is-windup", "is-tap-beat");
-      showComicSfx("TAP", "TAP");
-      sound.mangaTap();
-      battleAnnouncer.textContent = `${left.name} and ${right.name} step forward. Tap. Tap.`;
-    } else if (cue.cue === "impact") {
-      comicSfx.classList.remove("is-visible");
-      clashArena.classList.remove("is-windup", "is-tap-beat");
-      clashArena.classList.add("is-impact", "is-panel-impact");
-      showDefeatStamp("CLASH");
-      sound.boundlessClash();
-      battleAnnouncer.textContent = `${left.name} and ${right.name} unleash everything. Boundless clash.`;
-    } else {
-      clashArena.classList.remove("is-panel-impact");
+      clashArena.classList.add("is-power-rise");
+      $("span", clashVerdict).textContent = "TEAM ENERGY OUTPUT · LIMIT REMOVED";
+      $("strong", clashVerdict).textContent = "INFINITE POWER FLOODS THE PANELS";
+      sound.boundlessRise();
+      battleAnnouncer.textContent = `${left.name} and ${right.name} gather limitless team-colored energy.`;
+    } else if (cue.cue === "beam-release") {
+      clashArena.classList.add("is-power-rise", "is-beam-release");
+      $("span", clashVerdict).textContent = "PLAYER 1 POWER × PLAYER 2 POWER";
+      $("strong", clashVerdict).textContent = "TWIN BEAMS RIP THROUGH REALITY";
+      sound.beamRelease();
+      battleAnnouncer.textContent = `${left.name} and ${right.name} release opposing beams of light.`;
+    } else if (cue.cue === "beam-collision") {
+      clashArena.classList.add("is-power-rise", "is-beam-release", "is-beam-collision");
+      $("span", clashVerdict).textContent = "TWO INFINITIES · ONE IMPOSSIBLE CENTER";
+      $("strong", clashVerdict).textContent = "THE BEAMS TEAR REALITY APART";
+      sound.beamCollision();
+      battleAnnouncer.textContent = `The opposing power beams collide and reality begins to collapse.`;
+    } else if (cue.cue === "annihilation") {
+      clashArena.classList.add("is-annihilation");
       applyBattleEventOutcome(event, matchup);
-      showDefeatStamp("DOUBLE KO");
+      defeatStamp.textContent = "";
+      sound.boundlessAnnihilation();
       sound.nullify();
-      sound.stopCinematicScore();
-      battleAnnouncer.textContent = `${left.name} and ${right.name} cancel each other out. Double knockout.`;
+      sound.stopCinematicScore(BOUNDLESS_MUSIC_FADE_OUT_SECONDS);
+      clashArena.dataset.scoreState = scoreKind === "muted" ? "muted" : "fading";
+      battleAnnouncer.textContent = `${left.name} and ${right.name} are destroyed by the collapsing energy. Both are eliminated.`;
     }
   }
 
-  return battleWait(BATTLE_PACE.response, token);
+  return battleWait(BOUNDLESS_OUTRO_MS, token);
 }
 
 async function playBattle() {
@@ -2582,16 +2605,14 @@ async function playBattle() {
     else sound.charge(matchup.severity);
     if (!(await battleWait(BATTLE_PACE.dialogue, token))) return;
 
-    clashArena.dataset.cue = "tap";
-    setBattleCamera(clashArena.dataset.focus || "both", "tap");
-    clashArena.classList.add("is-windup", "is-tap-beat");
-    showComicSfx("TAP", "TAP");
-    sound.mangaTap();
-    if (!(await battleWait(BATTLE_PACE.tap, token))) return;
+    clashArena.dataset.cue = "charge";
+    setBattleCamera(clashArena.dataset.focus || "both", "charge");
+    clashArena.classList.add("is-windup");
+    sound.energyPulse();
+    if (!(await battleWait(BATTLE_PACE.charge, token))) return;
 
     clearBattleBubbles();
-    comicSfx.classList.remove("is-visible");
-    clashArena.classList.remove("is-windup", "is-tap-beat");
+    clashArena.classList.remove("is-windup");
     clashArena.classList.add("is-impact", "is-panel-impact");
     clashArena.dataset.cue = "impact";
     setBattleCamera("both", "impact");
@@ -2649,7 +2670,7 @@ function showResult() {
     row.className = "result-row";
     row.dataset.severity = clash.severity;
     const special = clash.reason === "boundless-nullification"
-      ? "BOUNDLESS CLASH · DOUBLE KO"
+      ? "MUTUAL ANNIHILATION · DOUBLE KO"
       : clash.stalemate
         ? "IMMOVABLE STALEMATE"
         : clash.verdict === "extreme-blitz"
@@ -2710,23 +2731,27 @@ sandboxStart.addEventListener("click", startSandboxBattle);
 spinAction.addEventListener("click", handleSpinAction);
 handoffAction.addEventListener("click", continueHandoff);
 botRevealAction.addEventListener("click", prepareReveal);
-clashTrackLoad.addEventListener("click", () => clashTrackInput.click());
-clashTrackInput.addEventListener("change", () => {
-  const [file] = clashTrackInput.files || [];
-  if (file) loadClashTrack(file);
-});
-clashTrackClear.addEventListener("click", () => {
-  clashTrackUiGeneration += 1;
-  sound.clearCustomTrack();
-  clashTrackLoad.disabled = false;
-  clashTrackClear.disabled = false;
-  beginBattle.disabled = false;
-  showOriginalClashTrackStatus();
-  showToast("Original dramatic clash score restored.");
-});
-beginBattle.addEventListener("click", () => {
+beginBattle.addEventListener("click", async () => {
+  if (beginBattle.disabled) return;
+  const flowToken = state.flowToken;
+  const preparedBattle = state.battle;
   sound.arm();
-  playBattle();
+  const needsBoundlessTrack = preparedBattle?.events.some(({ type }) => type === "boundless-clash");
+  if (needsBoundlessTrack) {
+    const originalCopy = beginBattle.textContent;
+    beginBattle.disabled = true;
+    beginBattle.setAttribute("aria-busy", "true");
+    beginBattle.textContent = "ARMING CINEMATIC SOUNDTRACK…";
+    try {
+      await sound.prepareBoundlessTrack();
+    } finally {
+      beginBattle.removeAttribute("aria-busy");
+      beginBattle.textContent = originalCopy;
+      beginBattle.disabled = false;
+    }
+  }
+  if (flowToken !== state.flowToken || state.battle !== preparedBattle || $("#reveal-screen").hidden) return;
+  void playBattle();
 });
 skipBattle.addEventListener("click", () => {
   if (!state.battle) return;
@@ -2775,6 +2800,7 @@ soundToggle.addEventListener("click", () => {
   updateSoundButton();
   if (sound.enabled) {
     sound.arm();
+    void sound.prepareBoundlessTrack();
     sound.tap();
     showToast("Sound effects on");
   } else {
@@ -2803,13 +2829,7 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("pagehide", () => {
   state.battleToken += 1;
-  clashTrackUiGeneration += 1;
   cancelBattlePresentation();
-  sound.clearCustomTrack();
-  clashTrackLoad.disabled = false;
-  clashTrackClear.disabled = false;
-  beginBattle.disabled = false;
-  showOriginalClashTrackStatus();
 });
 
 updateSoundButton();

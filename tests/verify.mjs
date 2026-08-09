@@ -5,11 +5,17 @@ import { menaceCharacters } from "../data/menaces.js";
 import { videoGameCharacters } from "../data/video-games.js";
 import {
   CATEGORY_WEIGHTS,
+  DAMAGE_PERCENTAGES,
+  MAX_HEALTH_PERCENT,
+  SPEED_TIERS,
+  STRENGTH_DURABILITY_TIERS,
+  calculateDamagePercent,
   classifyPowerMismatch,
   chooseWeighted,
   draftAutomatedTeam,
   formatHealth,
   formatPower,
+  getCombatStats,
   healthToPowerString,
   powerScore,
   powerToHealth,
@@ -267,147 +273,350 @@ assert.deepEqual(classifyPowerMismatch("Infinity", Infinity), {
   powerGap: 0n,
 });
 
-const finiteClash = resolveClash(
-  { name: "Fifteen", power: "15" },
-  { name: "Ten", power: "10" },
+assert.deepEqual(STRENGTH_DURABILITY_TIERS, {
+  Human: 0,
+  Building: 1,
+  "City Block": 2,
+  Town: 3,
+  City: 4,
+  Country: 5,
+  Continent: 6,
+  Planetary: 7,
+  Universal: 8,
+  Multiversal: 9,
+  Outerversal: 10,
+  Boundless: 11,
+});
+assert.deepEqual(SPEED_TIERS, {
+  Human: 1,
+  "Peak Human": 2,
+  Superhuman: 3,
+  Subsonic: 4,
+  Transonic: 5,
+  Supersonic: 6,
+  Hypersonic: 7,
+  "Sub-Relativistic": 8,
+  Relativistic: 9,
+  "Speed of Light": 10,
+  "Faster than Light": 11,
+  "Massively FTL": 12,
+  Omnipresent: 13,
+});
+assert.deepEqual(DAMAGE_PERCENTAGES, {
+  threeOrMoreTiersLower: 3,
+  twoTiersLower: 8,
+  oneTierLower: 15,
+  equal: 25,
+  oneTierHigher: 40,
+  twoTiersHigher: 65,
+  threeOrMoreTiersHigher: 100,
+});
+assert.equal(MAX_HEALTH_PERCENT, 100);
+
+const combatFighter = (name, strength, durability, speed) => ({
+  name,
+  power: "1",
+  strength,
+  durability,
+  speed,
+});
+const combatRandom = (values) => {
+  let calls = 0;
+  const random = () => values[calls++];
+  random.calls = () => calls;
+  return random;
+};
+
+assert.deepEqual(getCombatStats(combatFighter("Labels", "Universal", "Human", "Massively FTL")), {
+  strength: 8,
+  durability: 0,
+  speed: 12,
+});
+assert.deepEqual(getCombatStats(combatFighter("Numbers", 11, 0, 13)), {
+  strength: 11,
+  durability: 0,
+  speed: 13,
+});
+assert.throws(() => getCombatStats(null), /Fighter must be an object/);
+assert.throws(() => getCombatStats(combatFighter("Bad Strength", 0, 1, 1)), /Strength.*1 to 11/);
+assert.throws(() => getCombatStats(combatFighter("Bad Durability", 1, -1, 1)), /Durability.*0 to 11/);
+assert.throws(() => getCombatStats(combatFighter("Bad Speed", 1, 1, 14)), /Speed.*1 to 13/);
+
+assert.equal(calculateDamagePercent(1, 4), 3);
+assert.equal(calculateDamagePercent(2, 4), 8);
+assert.equal(calculateDamagePercent(3, 4), 15);
+assert.equal(calculateDamagePercent(4, 4), 25);
+assert.equal(calculateDamagePercent(5, 4), 40);
+assert.equal(calculateDamagePercent(6, 4), 65);
+assert.equal(calculateDamagePercent(7, 4), 100);
+assert.equal(calculateDamagePercent(11, 0), 100, "Human durability remains below Building");
+assert.equal(calculateDamagePercent("Universal", "Planetary"), 40);
+assert.equal(calculateDamagePercent("Outerversal", "Boundless"), 0);
+assert.equal(calculateDamagePercent("Boundless", "Boundless"), 25);
+assert.throws(() => calculateDamagePercent(12, 1), /Strength.*1 to 11/);
+
+const alternating = resolveClash(
+  combatFighter("Faster", 4, 4, 7),
+  combatFighter("Slower", 4, 4, 6),
 );
-assert.equal(finiteClash.winner, 1);
-assert.equal(finiteClash.reason, "greater-power");
-assert.equal(finiteClash.leftHealthBefore, 15n);
-assert.equal(finiteClash.rightHealthBefore, 10n);
-assert.equal(finiteClash.leftHealthAfter, 5n);
-assert.equal(finiteClash.rightHealthAfter, 0n);
-assert.deepEqual(finiteClash.eliminated, { left: false, right: true });
-assert.equal(finiteClash.severity, "edge");
-assert.equal(finiteClash.verdict, "narrow-edge");
-assert.equal(finiteClash.stronger, 1);
-assert.equal(finiteClash.powerGap, 5n);
+assert.equal(alternating.firstAttacker, 1);
+assert.equal(alternating.winner, 1);
+assert.equal(alternating.leftHealthAfter, 25);
+assert.equal(alternating.rightHealthAfter, 0);
+assert.deepEqual(alternating.events.map(({ attacker }) => attacker), [1, 2, 1, 2, 1, 2, 1]);
+assert.ok(alternating.events.every((event) => event.type === "attack"));
 
-const exactBigIntClash = resolveClash(
-  { name: "Exact High", power: "1" },
-  { name: "Exact Low", power: "1" },
-  exactScale + 1n,
-  exactScale,
+const equalSpeedRandom = combatRandom([0.75]);
+const equalSpeed = resolveClash(
+  combatFighter("Hard Hitter", 5, 5, 7),
+  combatFighter("Quick Starter", 4, 4, 7),
+  100,
+  100,
+  equalSpeedRandom,
 );
-assert.equal(exactBigIntClash.leftHealthAfter, 1n);
-assert.equal(exactBigIntClash.rightHealthAfter, 0n);
-assert.equal(exactBigIntClash.severity, "fair");
-assert.equal(exactBigIntClash.verdict, "photo-finish");
-assert.equal(exactBigIntClash.powerGap, 1n);
+assert.equal(equalSpeed.firstAttacker, 2);
+assert.equal(equalSpeed.events[0].attacker, 2);
+assert.equal(equalSpeed.winner, 1);
+assert.equal(equalSpeed.leftHealthAfter, 55);
+assert.equal(equalSpeedRandom.calls(), 1, "An equal-Speed tie consumes one deterministic coin flip");
 
-const equalClash = resolveClash(
-  { name: "Equal Left", power: "1e80" },
-  { name: "Equal Right", power: "1e80" },
+const clashRandom = combatRandom([0.75]);
+const powerClash = resolveClash(
+  combatFighter("Clash Left", 4, 4, 7),
+  combatFighter("Clash Right", 4, 4, 7),
+  100,
+  100,
+  clashRandom,
 );
-assert.equal(equalClash.winner, 0);
-assert.equal(equalClash.reason, "equal-power");
-assert.equal(equalClash.leftHealthAfter, 0n);
-assert.equal(equalClash.rightHealthAfter, 0n);
-assert.equal(equalClash.severity, "fair");
-assert.equal(equalClash.verdict, "dead-even");
-assert.equal(equalClash.powerGap, 0n);
+assert.equal(powerClash.powerClash, true);
+assert.equal(powerClash.events[0].type, "power-clash");
+assert.equal(powerClash.events[0].leftDamage, 12.5);
+assert.equal(powerClash.events[0].rightDamage, 12.5);
+assert.equal(powerClash.events[0].damageMultiplier, 0.5);
+assert.equal(powerClash.firstAttacker, 2);
+assert.deepEqual(powerClash.events.slice(1).map(({ attacker }) => attacker), [2, 1, 2, 1, 2, 1, 2]);
+assert.equal(powerClash.winner, 2);
+assert.equal(powerClash.rightHealthAfter, 12.5);
+assert.equal(clashRandom.calls(), 1);
 
-const infinityWin = resolveClash(boundlessOne, { name: "Huge Finite", power: "9.9e100" });
-assert.equal(infinityWin.winner, 1);
-assert.equal(infinityWin.leftHealthAfter, Infinity);
-assert.equal(infinityWin.rightHealthAfter, 0n);
-assert.equal(infinityWin.severity, "soloed");
-assert.equal(infinityWin.verdict, "boundless-overmatch");
-assert.equal(infinityWin.powerGap, Infinity);
-
-const infinityCancellation = resolveClash(boundlessOne, boundlessTwo);
-assert.equal(infinityCancellation.winner, 0);
-assert.equal(infinityCancellation.reason, "boundless-nullification");
-assert.equal(infinityCancellation.leftHealthAfter, 0n);
-assert.equal(infinityCancellation.rightHealthAfter, 0n);
-assert.equal(infinityCancellation.severity, "fair");
-assert.equal(infinityCancellation.verdict, "boundless-nullification");
-assert.equal(infinityCancellation.powerGap, 0n);
-
-const fighter = (name, power) => ({ name, power });
-const enduranceBattle = resolveBattle(
-  [fighter("A4", "4"), fighter("A10", "10"), fighter("A5", "5")],
-  [fighter("B6", "6"), fighter("B3", "3"), fighter("B7", "7")],
+const lowHealthClash = resolveClash(
+  combatFighter("Low Left", 4, 4, 7),
+  combatFighter("Low Right", 4, 4, 7),
+  5,
+  5,
+  () => 0,
 );
+assert.equal(lowHealthClash.events[0].type, "power-clash");
+assert.ok(
+  lowHealthClash.events[0].leftHealthAfter <= 0 || lowHealthClash.events[0].rightHealthAfter <= 0,
+  "A lethal Power Clash event exposes the eliminated fighter to the presentation layer",
+);
+assert.notDeepEqual(lowHealthClash.eliminated, { left: true, right: true }, "Only a Boundless clash may double KO");
+assert.equal(lowHealthClash.winner, 1);
 
-assert.deepEqual(enduranceBattle.sortedOne.map(({ name }) => name), ["A10", "A5", "A4"]);
-assert.deepEqual(enduranceBattle.sortedTwo.map(({ name }) => name), ["B7", "B6", "B3"]);
+const speedBlitz = resolveClash(
+  combatFighter("Blitzer", 4, 4, 10),
+  combatFighter("Target", 4, 4, 6),
+);
+assert.equal(speedBlitz.blitzType, "speed-blitz");
+assert.equal(speedBlitz.openingAttackCount, 2);
+assert.deepEqual(speedBlitz.events.map(({ attacker }) => attacker), [1, 1, 2, 1, 2, 1]);
+assert.deepEqual(speedBlitz.events.slice(0, 2).map(({ blitzHit }) => blitzHit), [1, 2]);
+assert.ok(speedBlitz.events.slice(0, 2).every(({ opening }) => opening));
+
+const belowBlitzThreshold = resolveClash(
+  combatFighter("Three Tiers Faster", 4, 4, 9),
+  combatFighter("Not Blitzed", 4, 4, 6),
+);
+assert.equal(belowBlitzThreshold.blitzType, null);
+assert.equal(belowBlitzThreshold.openingAttackCount, 1);
+assert.deepEqual(belowBlitzThreshold.events.slice(0, 2).map(({ attacker }) => attacker), [1, 2]);
+
+const fiveTierBlitz = resolveClash(
+  combatFighter("Five Tiers Faster", 4, 4, 11),
+  combatFighter("Still Regular Blitz", 4, 4, 6),
+);
+assert.equal(fiveTierBlitz.blitzType, "speed-blitz");
+assert.equal(fiveTierBlitz.openingAttackCount, 2);
+
+const extremeBlitz = resolveClash(
+  combatFighter("Extreme Blitzer", 4, 4, 12),
+  combatFighter("Extreme Target", 4, 4, 6),
+);
+assert.equal(extremeBlitz.blitzType, "extreme-blitz");
+assert.equal(extremeBlitz.openingAttackCount, 3);
+assert.deepEqual(extremeBlitz.events.map(({ attacker }) => attacker), [1, 1, 1, 2, 1]);
+assert.deepEqual(extremeBlitz.events.slice(0, 3).map(({ blitzHit }) => blitzHit), [1, 2, 3]);
+
+const stoppedBlitz = resolveClash(
+  combatFighter("One Shot", 7, 7, 13),
+  combatFighter("Never Moves", 1, 1, 1),
+);
+assert.equal(stoppedBlitz.events.length, 1, "A knockout stops the opening burst immediately");
+assert.equal(stoppedBlitz.events[0].oneShot, true);
+assert.equal(stoppedBlitz.severity, "soloed");
+assert.equal(stoppedBlitz.winner, 1);
+
+const losingBlitzer = resolveClash(
+  combatFighter("Fast but Harmless", 1, 8, 13),
+  combatFighter("Slow Powerhouse", 11, 8, 7),
+);
+assert.equal(losingBlitzer.blitzType, "extreme-blitz");
+assert.equal(losingBlitzer.winner, 2);
+assert.notEqual(losingBlitzer.verdict, "extreme-blitz", "A losing blitzer must not receive the winner's verdict");
+
+const immuneTank = resolveClash(
+  combatFighter("Boundless Tank", 8, 11, 1),
+  combatFighter("Outerversal Speedster", 10, 8, 13),
+);
+assert.equal(immuneTank.winner, 1);
+assert.equal(immuneTank.leftHealthAfter, 100);
+assert.equal(immuneTank.events[0].immune, true);
+assert.equal(immuneTank.events[0].damage, 0);
+assert.ok(immuneTank.events.some(({ attacker, damage }) => attacker === 1 && damage === 25));
+
+const boundlessCanDamage = resolveClash(
+  combatFighter("Boundless Attacker", 11, 8, 13),
+  combatFighter("Boundless Wall", 8, 11, 12),
+);
+assert.equal(boundlessCanDamage.events[0].damagePercent, 25);
+assert.equal(boundlessCanDamage.winner, 1);
+
+const dualBoundlessLeft = combatFighter("Infinite Left", 11, 11, 13);
+const dualBoundlessRight = combatFighter("Infinite Right", 11, 11, 12);
+const unusedBoundlessRandom = combatRandom([]);
+const boundlessClash = resolveClash(dualBoundlessLeft, dualBoundlessRight, 100, 100, unusedBoundlessRandom);
+assert.equal(boundlessClash.reason, "boundless-nullification");
+assert.equal(boundlessClash.boundlessClash, true);
+assert.equal(boundlessClash.events.length, 1);
+assert.equal(boundlessClash.events[0].type, "boundless-clash");
+assert.equal(boundlessClash.events[0].doubleKo, true);
+assert.deepEqual(boundlessClash.eliminated, { left: true, right: true });
+assert.equal(unusedBoundlessRandom.calls(), 0);
+
+const notFullyBoundless = resolveClash(
+  dualBoundlessLeft,
+  combatFighter("Boundless Durability Only", 10, 11, 13),
+);
+assert.notEqual(notFullyBoundless.reason, "boundless-nullification");
+assert.deepEqual(notFullyBoundless.eliminated, { left: false, right: true });
+
+const mutualImmunity = resolveClash(
+  combatFighter("Immune Left", 10, 11, 13),
+  combatFighter("Immune Right", 10, 11, 13),
+);
+assert.equal(mutualImmunity.reason, "mutual-immunity");
+assert.equal(mutualImmunity.stalemate, true);
+assert.equal(mutualImmunity.events.length, 1);
+assert.equal(mutualImmunity.events[0].type, "stalemate");
+assert.deepEqual(mutualImmunity.eliminated, { left: false, right: false });
+
+const orderedTeamOne = Object.freeze([
+  Object.freeze(combatFighter("A First", 7, 7, 11)),
+  Object.freeze(combatFighter("A Final", 10, 10, 13)),
+]);
+const orderedTeamTwo = Object.freeze([
+  Object.freeze(combatFighter("B First", 1, 1, 1)),
+  Object.freeze(combatFighter("B Final", 10, 7, 12)),
+]);
+const enduranceBattle = resolveBattle(orderedTeamOne, orderedTeamTwo);
+assert.deepEqual(enduranceBattle.sortedOne.map(({ name }) => name), ["A First", "A Final"]);
+assert.deepEqual(enduranceBattle.sortedTwo.map(({ name }) => name), ["B First", "B Final"]);
 assert.equal(enduranceBattle.timeline, enduranceBattle.clashes);
-assert.equal(enduranceBattle.timeline.length, 5);
+assert.equal(enduranceBattle.events, enduranceBattle.actionTimeline);
+assert.equal(enduranceBattle.timeline.length, 3);
 assert.deepEqual(
   enduranceBattle.timeline.map(({ leftIndex, rightIndex }) => [leftIndex, rightIndex]),
-  [[0, 0], [0, 1], [1, 1], [1, 2], [2, 2]],
+  [[0, 0], [0, 1], [1, 1]],
 );
 assert.deepEqual(
   enduranceBattle.timeline.map(({ leftHealthBefore, rightHealthBefore }) => [leftHealthBefore, rightHealthBefore]),
-  [[10n, 7n], [3n, 6n], [5n, 3n], [2n, 3n], [4n, 1n]],
-);
-assert.deepEqual(
-  enduranceBattle.timeline.map(({ leftHealthAfter, rightHealthAfter }) => [leftHealthAfter, rightHealthAfter]),
-  [[3n, 0n], [0n, 3n], [2n, 0n], [0n, 1n], [3n, 0n]],
+  [[100, 100], [100, 100], [100, 100]],
 );
 assert.deepEqual(
   enduranceBattle.timeline.map(({ nextLeftIndex, nextRightIndex }) => [nextLeftIndex, nextRightIndex]),
-  [[0, 1], [1, 1], [1, 2], [2, 2], [2, 3]],
+  [[0, 1], [1, 1], [1, 2]],
 );
 assert.deepEqual(
-  enduranceBattle.timeline.map(({ remainingOne, remainingTwo }) => [remainingOne, remainingTwo]),
-  [[3, 2], [2, 2], [2, 1], [1, 1], [1, 0]],
+  enduranceBattle.timeline.map(({ leftLastStand, rightLastStand }) => [leftLastStand, rightLastStand]),
+  [[false, false], [false, true], [true, false]],
 );
 assert.deepEqual(
-  enduranceBattle.timeline.map(({ severity, verdict }) => [severity, verdict]),
-  [
-    ["edge", "narrow-edge"],
-    ["dominant", "decisive-win"],
-    ["edge", "narrow-edge"],
-    ["edge", "narrow-edge"],
-    ["dominant", "decisive-win"],
-  ],
+  enduranceBattle.timeline.map(({ leftIsLastFighter, rightIsLastFighter }) => [leftIsLastFighter, rightIsLastFighter]),
+  [[false, false], [false, true], [true, true]],
 );
-assert.equal(enduranceBattle.scoreOne, 3);
-assert.equal(enduranceBattle.scoreTwo, 2);
+assert.equal(enduranceBattle.scoreOne, 2);
+assert.equal(enduranceBattle.scoreTwo, 1);
 assert.equal(enduranceBattle.winner, 1);
 assert.equal(enduranceBattle.isDraw, false);
+assert.equal(enduranceBattle.stalemate, false);
 assert.equal(enduranceBattle.survivorsOne.length, 1);
-assert.equal(enduranceBattle.survivorsOne[0].name, "A4");
-assert.equal(enduranceBattle.survivorsOne[0].health, 3n);
-assert.equal(enduranceBattle.survivorsOne[0].maxHealth, 4n);
-assert.equal(enduranceBattle.survivorsOne[0].remainingPower, "3");
+assert.equal(enduranceBattle.survivorsOne[0].name, "A Final");
+assert.equal(enduranceBattle.survivorsOne[0].health, 100);
+assert.equal(enduranceBattle.survivorsOne[0].maxHealth, 100);
+assert.equal(enduranceBattle.survivorsOne[0].remainingPercent, 100);
 assert.equal(enduranceBattle.survivorsTwo.length, 0);
-assert.equal(enduranceBattle.remainingHealthOne, 3n);
-assert.equal(enduranceBattle.remainingHealthTwo, 0n);
+assert.equal(enduranceBattle.remainingHealthOne, 100);
+assert.equal(enduranceBattle.remainingHealthTwo, 0);
+assert.deepEqual(enduranceBattle.events.map(({ sequence }) => sequence), [1, 2, 3]);
+assert.deepEqual(enduranceBattle.events.map(({ round }) => round), [1, 2, 3]);
+
+const carryBattle = resolveBattle(
+  [combatFighter("Damaged Survivor", 4, 4, 7)],
+  [combatFighter("Even Opponent", 4, 4, 6), combatFighter("Weak Reserve", 1, 1, 1)],
+);
+assert.equal(carryBattle.timeline.length, 2);
+assert.equal(carryBattle.timeline[0].leftHealthAfter, 25);
+assert.equal(carryBattle.timeline[1].leftHealthBefore, 25, "The winner carries percentage health into the next duel");
+assert.equal(carryBattle.timeline[1].leftHealthAfter, 25);
+assert.equal(carryBattle.survivorsOne[0].remainingPercent, 25);
+assert.equal(carryBattle.winner, 1);
 
 const cancellationBattle = resolveBattle(
-  [boundlessOne, fighter("Left Five", "5")],
-  [boundlessTwo, fighter("Right Three", "3")],
+  [dualBoundlessLeft, combatFighter("Left Finisher", 7, 7, 11)],
+  [dualBoundlessRight, combatFighter("Right Reserve", 1, 1, 1)],
 );
 assert.equal(cancellationBattle.timeline.length, 2);
 assert.equal(cancellationBattle.timeline[0].reason, "boundless-nullification");
-assert.equal(cancellationBattle.timeline[1].leftHealthAfter, 2n);
+assert.deepEqual(cancellationBattle.timeline[0].eliminated, { left: true, right: true });
+assert.equal(cancellationBattle.timeline[1].leftLastStand, true);
+assert.equal(cancellationBattle.timeline[1].rightLastStand, true);
 assert.equal(cancellationBattle.winner, 1);
 
 const completeDraw = resolveBattle(
-  [boundlessOne, fighter("Left Ten", "10"), fighter("Left Two", "2")],
-  [boundlessTwo, fighter("Right Ten", "10"), fighter("Right Two", "2")],
+  [dualBoundlessLeft, { ...dualBoundlessLeft, name: "Infinite Left Two" }],
+  [dualBoundlessRight, { ...dualBoundlessRight, name: "Infinite Right Two" }],
 );
-assert.equal(completeDraw.timeline.length, 3);
+assert.equal(completeDraw.timeline.length, 2);
 assert.equal(completeDraw.winner, 0);
 assert.equal(completeDraw.isDraw, true);
+assert.equal(completeDraw.stalemate, false);
 assert.deepEqual(completeDraw.survivorsOne, []);
 assert.deepEqual(completeDraw.survivorsTwo, []);
-assert.equal(completeDraw.remainingHealthOne, 0n);
-assert.equal(completeDraw.remainingHealthTwo, 0n);
+assert.equal(completeDraw.remainingHealthOne, 0);
+assert.equal(completeDraw.remainingHealthTwo, 0);
 
-const infinitySweep = resolveBattle(
-  [boundlessOne, fighter("Reserve Two", "2"), fighter("Reserve One", "1")],
-  [fighter("Thirty", "30"), fighter("Twenty", "20"), fighter("Ten", "10")],
+const lockedBattle = resolveBattle(
+  [combatFighter("Locked Left", 10, 11, 13), combatFighter("Unused Left", 11, 11, 13)],
+  [combatFighter("Locked Right", 10, 11, 12), combatFighter("Unused Right", 11, 11, 13)],
 );
-assert.equal(infinitySweep.timeline.length, 3);
-assert.ok(infinitySweep.timeline.every((clash) => clash.leftHealthAfter === Infinity));
-assert.ok(infinitySweep.timeline.every((clash) => clash.rightHealthAfter === 0n));
-assert.equal(infinitySweep.winner, 1);
-assert.equal(infinitySweep.survivorsOne.length, 3);
-assert.equal(infinitySweep.remainingHealthOne, Infinity);
-assert.equal(infinitySweep.remainingHealthTwo, 0n);
+assert.equal(lockedBattle.timeline.length, 1, "Mutual immunity terminates instead of looping");
+assert.equal(lockedBattle.events.length, 1);
+assert.equal(lockedBattle.stalemate, true);
+assert.equal(lockedBattle.winner, 0);
+assert.equal(lockedBattle.isDraw, true);
+assert.equal(lockedBattle.survivorsOne.length, 2);
+assert.equal(lockedBattle.survivorsTwo.length, 2);
 
-console.log("Verified 300 fighters plus exact BigInt endurance, mismatch severity boundaries, health formatting, and Infinity rules.");
+assert.throws(() => resolveClash(combatFighter("A", 1, 1, 1), combatFighter("B", 1, 1, 2), -1), /Left health/);
+assert.throws(() => resolveClash(combatFighter("A", 1, 1, 1), combatFighter("B", 1, 1, 2), 100, 101), /Right health/);
+assert.throws(() => resolveClash(combatFighter("A", 1, 1, 1), combatFighter("B", 1, 1, 2), null), /Left health/);
+assert.throws(() => resolveClash(combatFighter("A", 1, 1, 1), combatFighter("B", 1, 1, 2), 100, 100, null), /combat RNG/);
+assert.throws(
+  () => resolveClash(combatFighter("A", 1, 1, 1), combatFighter("B", 2, 2, 1), 100, 100, () => NaN),
+  /combat RNG must return a finite number/,
+);
+assert.throws(() => resolveBattle(null, []), /Teams must be arrays/);
+assert.throws(() => resolveBattle([], [combatFighter("B", 1, 1, 1)]), /at least one fighter/);
+
+console.log("Verified 300 fighters, legacy exact-power helpers, tier damage, turn order, blitzes, clashes, Boundless rules, and winner-stays percentage health.");

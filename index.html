@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Choose Pass & Play, challenge the bot, or join a live online lobby for a cinematic winner-stays-on 3v3 fighter clash."
+      content="Spin, hand-pick, or randomize two 3v3 squads, then watch Strength, Durability, and Speed decide a cinematic winner-stays battle."
     />
     <meta name="theme-color" content="#08090c" />
     <meta property="og:title" content="1v1 Spinner Fighter" />
-    <meta property="og:description" content="Spin your three. Face a friend, a bot, or an online rival. Clash." />
+    <meta property="og:description" content="Spin your three or build a Sandbox matchup. Strength, Durability, and Speed decide the clash." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://kuhnns.github.io/1v1spinnerfighter/" />
     <meta property="og:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
@@ -18,9 +18,9 @@
     <meta property="og:image:alt" content="1v1 Spinner Fighter — Spin your three. Pass the device. Clash." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://kuhnns.github.io/1v1spinnerfighter/og.png" />
-    <title>1v1 Spinner Fighter — Local, Bot &amp; Online</title>
-    <link rel="stylesheet" href="styles.css?v=20260809-4" />
-    <script type="module" src="script.js?v=20260809-4"></script>
+    <title>1v1 Spinner Fighter — Spin, Sandbox &amp; Battle</title>
+    <link rel="stylesheet" href="styles.css?v=20260809-5" />
+    <script type="module" src="script.js?v=20260809-5"></script>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -44,7 +44,7 @@
           <p class="kicker">CHOOSE YOUR MULTIVERSE BATTLE</p>
           <h1 id="hero-title">SPIN YOUR THREE.<br /><span>SETTLE THE IMPOSSIBLE.</span></h1>
           <p class="hero-deck">
-            Draft three legendary fighters, then face a friend beside you, an instant bot rival, or another player online.
+            Spin three legends against a friend, bot, or online rival—or hand-pick both sides in Sandbox mode.
           </p>
           <div class="mode-picker" role="group" aria-labelledby="mode-picker-title">
             <p class="mode-picker-label" id="mode-picker-title">SELECT BATTLE MODE</p>
@@ -65,6 +65,12 @@
                 <span class="mode-card-top"><b>REMOTE MODE</b><i>ONLINE</i></span>
                 <strong>ONLINE</strong>
                 <small>Browse, create, or join a public lobby.</small>
+                <span class="mode-card-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="mode-card mode-card-sandbox" id="start-sandbox" type="button">
+                <span class="mode-card-top"><b>CUSTOM MODE</b><i>SANDBOX</i></span>
+                <strong>SANDBOX</strong>
+                <small>Hand-pick both squads or randomize the entire matchup.</small>
                 <span class="mode-card-arrow" aria-hidden="true">↗</span>
               </button>
             </div>
@@ -155,6 +161,125 @@
           <div class="online-room-state"><span aria-hidden="true"></span> REALTIME LINK ACTIVE</div>
           <button class="text-button online-leave" id="leave-lobby" type="button">LEAVE LOBBY</button>
         </section>
+      </section>
+
+      <section class="screen sandbox-screen" id="sandbox-screen" aria-labelledby="sandbox-title" hidden>
+        <div class="screen-heading sandbox-heading">
+          <div>
+            <p class="kicker">CUSTOM MODE · ALL 300 FIGHTERS UNLOCKED</p>
+            <h2 id="sandbox-title" tabindex="-1">BUILD THE MATCHUP</h2>
+          </div>
+          <button class="text-button sandbox-back" id="sandbox-back" type="button"><span aria-hidden="true">←</span> BACK TO MODES</button>
+        </div>
+
+        <p class="sandbox-intro">
+          Choose the squad you are editing, then select three unique fighters from the vault. Every existing name, form, and image stays intact.
+        </p>
+
+        <div class="sandbox-team-board" role="group" aria-label="Sandbox squads">
+          <section class="sandbox-team-panel is-active" id="sandbox-team-one-panel" data-sandbox-team="0" aria-labelledby="sandbox-team-one-title">
+            <div class="sandbox-team-heading">
+              <div>
+                <span class="sandbox-team-kicker">TEAM 1 · <b data-sandbox-team-count="0">0 / 3</b></span>
+                <h3 id="sandbox-team-one-title">YOUR SQUAD</h3>
+              </div>
+              <button class="sandbox-side-button" id="sandbox-side-one" data-sandbox-side="0" type="button" aria-pressed="true" aria-controls="sandbox-roster">EDIT TEAM 1</button>
+            </div>
+            <div class="sandbox-team-actions">
+              <button class="text-button" id="sandbox-random-one" data-sandbox-random-team="0" type="button">RANDOM TEAM</button>
+              <button class="text-button" id="sandbox-clear-one" data-sandbox-clear-team="0" type="button" disabled>CLEAR TEAM</button>
+            </div>
+            <div class="sandbox-team-slots" id="sandbox-slots-one" data-sandbox-slots="0" role="group" aria-label="Team 1 selections">
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="0" data-slot-index="0" type="button" aria-label="Team 1 empty slot 1" disabled><span>01</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="0" data-slot-index="1" type="button" aria-label="Team 1 empty slot 2" disabled><span>02</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="0" data-slot-index="2" type="button" aria-label="Team 1 empty slot 3" disabled><span>03</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+            </div>
+          </section>
+
+          <div class="sandbox-board-versus" aria-hidden="true"><span>VS</span></div>
+
+          <section class="sandbox-team-panel" id="sandbox-team-two-panel" data-sandbox-team="1" aria-labelledby="sandbox-team-two-title">
+            <div class="sandbox-team-heading">
+              <div>
+                <span class="sandbox-team-kicker">TEAM 2 · <b data-sandbox-team-count="1">0 / 3</b></span>
+                <h3 id="sandbox-team-two-title">RIVAL SQUAD</h3>
+              </div>
+              <button class="sandbox-side-button" id="sandbox-side-two" data-sandbox-side="1" type="button" aria-pressed="false" aria-controls="sandbox-roster">EDIT TEAM 2</button>
+            </div>
+            <div class="sandbox-team-actions">
+              <button class="text-button" id="sandbox-random-two" data-sandbox-random-team="1" type="button">RANDOM TEAM</button>
+              <button class="text-button" id="sandbox-clear-two" data-sandbox-clear-team="1" type="button" disabled>CLEAR TEAM</button>
+            </div>
+            <div class="sandbox-team-slots" id="sandbox-slots-two" data-sandbox-slots="1" role="group" aria-label="Team 2 selections">
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="1" data-slot-index="0" type="button" aria-label="Team 2 empty slot 1" disabled><span>01</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="1" data-slot-index="1" type="button" aria-label="Team 2 empty slot 2" disabled><span>02</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+              <button class="sandbox-slot" data-sandbox-slot data-sandbox-team="1" data-slot-index="2" type="button" aria-label="Team 2 empty slot 3" disabled><span>03</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small></button>
+            </div>
+          </section>
+        </div>
+
+        <section class="sandbox-vault" aria-labelledby="sandbox-vault-title">
+          <div class="sandbox-vault-heading">
+            <div>
+              <p class="panel-label">FIGHTER VAULT</p>
+              <h3 id="sandbox-vault-title">CHOOSE YOUR LEGENDS</h3>
+            </div>
+            <button class="secondary-button sandbox-random-all" id="sandbox-random-all" type="button">RANDOMIZE BOTH TEAMS</button>
+          </div>
+
+          <div class="sandbox-controls">
+            <div class="sandbox-filter-field">
+              <label for="sandbox-filter">UNIVERSE</label>
+              <select id="sandbox-filter" name="sandbox-filter" data-sandbox-filter>
+                <option value="all">All universes</option>
+                <option value="anime">Anime</option>
+                <option value="marvel">Marvel</option>
+                <option value="dc">DC</option>
+                <option value="games">Video Game Legends</option>
+                <option value="menace">Fiction &amp; Toon Menaces</option>
+              </select>
+            </div>
+            <div class="sandbox-search-field">
+              <label for="sandbox-search">SEARCH BY NAME OR FORM</label>
+              <div>
+                <input id="sandbox-search" name="sandbox-search" data-sandbox-search type="search" autocomplete="off" spellcheck="false" placeholder="Search all 300 fighters…" aria-controls="sandbox-roster" aria-describedby="sandbox-results-count" />
+                <button class="text-button" id="sandbox-clear-search" type="button" aria-label="Clear fighter search" disabled>CLEAR</button>
+              </div>
+            </div>
+            <p class="sandbox-results" aria-live="polite"><strong id="sandbox-results-count">300</strong><span>FIGHTERS FOUND</span></p>
+          </div>
+
+          <div class="sandbox-roster" id="sandbox-roster" data-sandbox-roster role="list" aria-label="Available fighters" aria-busy="true">
+            <div class="sandbox-roster-loading" role="listitem" aria-hidden="true"><span></span><b>OPENING THE VAULT</b><small>Loading fighter forms and combat stats…</small></div>
+          </div>
+          <p class="sandbox-empty" id="sandbox-empty" data-sandbox-empty role="status" hidden>No fighters match this search and universe.</p>
+        </section>
+
+        <div class="sandbox-launch-panel">
+          <p id="sandbox-status" data-state="building" role="status" aria-live="polite" aria-atomic="true">Choose three unique fighters for each team.</p>
+          <button class="primary-button" id="sandbox-start" type="button" aria-describedby="sandbox-status" disabled>START CUSTOM BATTLE</button>
+        </div>
+
+        <template id="sandbox-fighter-template">
+          <article class="sandbox-fighter" data-sandbox-fighter data-sandbox-fighter-id="" data-category="" role="listitem">
+            <button class="sandbox-fighter-select" data-sandbox-pick type="button" aria-pressed="false">
+              <span class="sandbox-fighter-art">
+                <img data-fighter-image alt="" />
+                <i data-fighter-category aria-hidden="true">UNIVERSE</i>
+              </span>
+              <span class="sandbox-fighter-copy">
+                <strong data-fighter-name>FIGHTER NAME</strong>
+                <small data-fighter-form>Strongest form</small>
+                <span class="sandbox-fighter-stats" aria-label="Combat stats">
+                  <span data-stat="strength"><i>STR</i><b data-fighter-strength>—</b></span>
+                  <span data-stat="durability"><i>DUR</i><b data-fighter-durability>—</b></span>
+                  <span data-stat="speed"><i>SPD</i><b data-fighter-speed>—</b></span>
+                </span>
+              </span>
+              <span class="sandbox-fighter-add" aria-hidden="true">+</span>
+            </button>
+          </article>
+        </template>
       </section>
 
       <section class="screen draft-screen" id="draft-screen" aria-labelledby="draft-title" hidden>
@@ -271,10 +396,10 @@
       <section class="screen reveal-screen" id="reveal-screen" aria-labelledby="reveal-title" hidden>
         <div class="screen-heading reveal-heading">
           <div>
-            <p class="kicker">SQUADS REVEALED · AUTO-SORTED BY POWER</p>
+            <p class="kicker">SQUADS REVEALED · ENTRY ORDER LOCKED</p>
             <h2 id="reveal-title">THE MATCHUP</h2>
           </div>
-          <div class="match-format"><b>HP</b><span>POWER BECOMES<br />FIGHTER HEALTH</span></div>
+          <div class="match-format"><b>3</b><span>STRENGTH · DURABILITY<br />SPEED · 100% HEALTH</span></div>
         </div>
         <div class="lineup-versus">
           <div class="lineup-side player-one-side">
@@ -288,7 +413,7 @@
           </div>
         </div>
         <div class="center-action">
-          <p>Strongest enters first. The winner keeps only the health left after subtracting the opponent, then faces the next fighter. Boundless pairs nullify.</p>
+          <p>Fighters enter in squad order. Speed sets the first strike, Strength attacks Durability, and each survivor carries their remaining health into the next duel.</p>
           <button class="primary-button" id="begin-battle" type="button">BEGIN ENDURANCE CLASH</button>
         </div>
       </section>
@@ -332,7 +457,7 @@
     </main>
 
     <footer class="site-footer">
-      <span>UNOFFICIAL FAN-MADE GAME · POWER RATINGS ARE FOR PLAY, NOT CANON</span>
+      <span>UNOFFICIAL FAN-MADE GAME · COMBAT STAT TIERS ARE FOR PLAY, NOT CANON</span>
       <span>Character imagery is requested from multiple public encyclopedia sources when available. Rights belong to their respective owners.</span>
     </footer>
 

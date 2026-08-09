@@ -1,43 +1,48 @@
-import { animeCharacters } from "./data/anime.js?v=20260809-4";
-import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-4";
-import { menaceCharacters } from "./data/menaces.js?v=20260809-4";
-import { videoGameCharacters } from "./data/video-games.js?v=20260809-4";
+import { animeCharacters } from "./data/anime.js?v=20260809-5";
+import { dcCharacters, marvelCharacters } from "./data/comics.js?v=20260809-5";
+import { menaceCharacters } from "./data/menaces.js?v=20260809-5";
+import { getCharacterStats } from "./data/stats.js?v=20260809-5";
+import { videoGameCharacters } from "./data/video-games.js?v=20260809-5";
 import {
   CATEGORY_WEIGHTS,
   chooseWeighted,
   draftAutomatedTeam,
-  formatHealth,
-  formatPower,
-  powerScore,
-  powerTier,
-  powerToHealth,
   randomIndex,
   resolveBattle,
-} from "./game-logic.js?v=20260809-4";
+} from "./game-logic.js?v=20260809-5";
 import {
   formatLobbyCodeInput,
   OnlineLobbyNetwork,
   normalizeLobbyCode,
   sanitizePlayerName,
-} from "./online-network.js?v=20260809-4";
+} from "./online-network.js?v=20260809-5";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 const REDUCED_MOTION_AUDIO_SCALE = 0.035;
 
+function combatRoster(roster, categoryId, categoryLabel) {
+  return roster.map((fighter) => {
+    const stats = getCharacterStats(fighter.id);
+    if (!stats) throw new Error(`Missing combat stats for ${fighter.id}`);
+    return Object.freeze({ ...fighter, ...stats, categoryId, categoryLabel });
+  });
+}
+
 const categories = [
-  { id: "anime", label: "ANIME", weight: CATEGORY_WEIGHTS.anime, roster: animeCharacters, center: 45 },
-  { id: "marvel", label: "MARVEL", weight: CATEGORY_WEIGHTS.marvel, roster: marvelCharacters, center: 135 },
-  { id: "dc", label: "DC", weight: CATEGORY_WEIGHTS.dc, roster: dcCharacters, center: 225 },
-  { id: "games", label: "VIDEO GAME LEGENDS", weight: CATEGORY_WEIGHTS.games, roster: videoGameCharacters, center: 297 },
-  { id: "menace", label: "FICTION & TOON MENACES", weight: CATEGORY_WEIGHTS.menace, roster: menaceCharacters, center: 342 },
+  { id: "anime", label: "ANIME", weight: CATEGORY_WEIGHTS.anime, roster: combatRoster(animeCharacters, "anime", "ANIME"), center: 45 },
+  { id: "marvel", label: "MARVEL", weight: CATEGORY_WEIGHTS.marvel, roster: combatRoster(marvelCharacters, "marvel", "MARVEL"), center: 135 },
+  { id: "dc", label: "DC", weight: CATEGORY_WEIGHTS.dc, roster: combatRoster(dcCharacters, "dc", "DC"), center: 225 },
+  { id: "games", label: "VIDEO GAME LEGENDS", weight: CATEGORY_WEIGHTS.games, roster: combatRoster(videoGameCharacters, "games", "VIDEO GAME LEGENDS"), center: 297 },
+  { id: "menace", label: "FICTION & TOON MENACES", weight: CATEGORY_WEIGHTS.menace, roster: combatRoster(menaceCharacters, "menace", "FICTION & TOON MENACES"), center: 342 },
 ];
 
 const screens = $$(".screen");
 const startGameButton = $("#start-game");
 const startBotButton = $("#start-bot");
 const openOnlineButton = $("#open-online");
+const startSandboxButton = $("#start-sandbox");
 const modePill = $("#mode-pill");
 const soundToggle = $("#sound-toggle");
 const draftOverline = $("#draft-overline");
@@ -85,6 +90,21 @@ const onlineWaitKicker = $("#online-wait-kicker");
 const onlineWaitTitle = $("#online-wait-title");
 const onlineWaitCopy = $("#online-wait-copy");
 const onlineLeaveMatch = $("#online-leave-match");
+const sandboxBack = $("#sandbox-back");
+const sandboxFilter = $("#sandbox-filter");
+const sandboxSearch = $("#sandbox-search");
+const sandboxClearSearch = $("#sandbox-clear-search");
+const sandboxRandomAll = $("#sandbox-random-all");
+const sandboxRoster = $("#sandbox-roster");
+const sandboxEmpty = $("#sandbox-empty");
+const sandboxResultsCount = $("#sandbox-results-count");
+const sandboxStatus = $("#sandbox-status");
+const sandboxStart = $("#sandbox-start");
+const sandboxFighterTemplate = $("#sandbox-fighter-template");
+const sandboxTeamPanels = $$('[data-sandbox-team].sandbox-team-panel');
+const sandboxSideButtons = $$('[data-sandbox-side]');
+const sandboxRandomTeamButtons = $$('[data-sandbox-random-team]');
+const sandboxClearTeamButtons = $$('[data-sandbox-clear-team]');
 const p1Lineup = $("#p1-lineup");
 const p2Lineup = $("#p2-lineup");
 const p1Total = $("#p1-total");
@@ -150,12 +170,13 @@ const state = {
   onlineRole: null,
   localPlayerIndex: 0,
   playerNames: ["PLAYER 1", "PLAYER 2"],
+  sandboxActiveSide: 0,
 };
 
-const fighterById = new Map(categories.flatMap((category) => category.roster.map((fighter) => [
-  fighter.id,
-  { ...fighter, categoryId: category.id, categoryLabel: category.label },
-])));
+const fighterById = new Map(categories.flatMap((category) => category.roster.map((fighter) => [fighter.id, fighter])));
+const allFighters = [...fighterById.values()];
+const sandboxFighterNodes = new Map();
+let sandboxImageObserver = null;
 let onlineNetwork = null;
 let onlineNetworkName = "";
 let pendingOnlineTeamIds = null;
@@ -268,9 +289,9 @@ class SoundEngine {
     if (index % 2 === 0) this.tone(320 + (index % 7) * 25, 0.035, { type: "triangle", volume: 0.012 });
   }
 
-  reveal(power) {
-    const score = powerScore(power);
-    const base = score === Infinity ? 180 : Math.min(720, 180 + score * 5);
+  reveal(tier = 5) {
+    const level = Math.max(0, Math.min(13, Number(tier) || 0));
+    const base = Math.min(720, 180 + level * 40);
     this.tone(base, 0.42, { type: "sawtooth", volume: 0.025, endFrequency: base * 1.7 });
     this.tone(base * 1.5, 0.5, { delay: 0.06, type: "sine", volume: 0.035, endFrequency: base * 2.05 });
   }
@@ -288,9 +309,8 @@ class SoundEngine {
     }
   }
 
-  impact(powerOne, powerTwo, severity = "fair") {
-    const topScore = Math.max(powerScore(powerOne), powerScore(powerTwo));
-    const intensity = topScore === Infinity ? 1 : Math.min(1, topScore / 100);
+  impact(tierOne, tierTwo, severity = "fair") {
+    const intensity = Math.min(1, Math.max(Number(tierOne) || 0, Number(tierTwo) || 0) / 11);
     const mismatch = { fair: 0, edge: 0.12, dominant: 0.28, brutal: 0.48, soloed: 0.72 }[severity] ?? 0;
     this.tone(95 + intensity * 55, 0.52 + mismatch * 0.3, { type: "sawtooth", volume: 0.05 + mismatch * 0.025, endFrequency: 40 });
     this.tone(520 + intensity * 400 + mismatch * 420, 0.26, { delay: 0.05, type: "square", volume: 0.018 + mismatch * 0.012, endFrequency: 120 });
@@ -323,9 +343,9 @@ class SoundEngine {
     }));
   }
 
-  lock(power) {
-    const score = powerScore(power);
-    const base = score === Infinity ? 520 : Math.min(620, 210 + score * 4);
+  lock(tier = 5) {
+    const level = Math.max(0, Math.min(13, Number(tier) || 0));
+    const base = Math.min(620, 210 + level * 32);
     [1, 1.25, 1.5].forEach((ratio, index) => {
       this.tone(base * ratio, 0.18, { delay: index * 0.075, type: "triangle", volume: 0.022 });
     });
@@ -356,6 +376,40 @@ class SoundEngine {
   nullify() {
     this.tone(180, 0.72, { type: "sawtooth", volume: 0.026, endFrequency: 178 });
     this.tone(183, 0.72, { type: "sawtooth", volume: 0.026, endFrequency: 181 });
+  }
+
+  blitz(extreme = false) {
+    const hits = extreme ? 3 : 2;
+    for (let index = 0; index < hits; index += 1) {
+      this.tone(980 + index * 330, 0.095, {
+        delay: index * 0.075,
+        type: "square",
+        volume: 0.024,
+        endFrequency: 220,
+      });
+    }
+  }
+
+  powerClash() {
+    this.tone(210, 0.55, { type: "sawtooth", volume: 0.05, endFrequency: 720 });
+    this.tone(840, 0.42, { delay: 0.04, type: "square", volume: 0.026, endFrequency: 120 });
+  }
+
+  boundlessClash() {
+    this.stopAll();
+    [55, 82, 123, 185, 370, 740].forEach((note, index) => {
+      this.tone(note, 0.58, {
+        delay: index * 0.11,
+        type: index < 3 ? "sine" : "sawtooth",
+        volume: 0.025 + index * 0.004,
+        endFrequency: note * 1.7,
+      });
+    });
+  }
+
+  immune() {
+    this.tone(150, 0.38, { type: "triangle", volume: 0.018, endFrequency: 148 });
+    this.tone(151, 0.38, { type: "sine", volume: 0.018, endFrequency: 150 });
   }
 
   final(winner) {
@@ -431,6 +485,27 @@ function randomUnit() {
   return Math.random();
 }
 
+function battleSeed(teamOne, teamTwo) {
+  const signature = `tier-combat-v1|${teamOne.map(({ id }) => id).join(",")}|${teamTwo.map(({ id }) => id).join(",")}`;
+  let hash = 2166136261;
+  for (let index = 0; index < signature.length; index += 1) {
+    hash ^= signature.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededBattleRandom(teamOne, teamTwo) {
+  let value = battleSeed(teamOne, teamTwo);
+  return () => {
+    value = (value + 0x6D2B79F5) >>> 0;
+    let mixed = value;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function defaultOnlineName() {
   return `PLAYER ${String(Math.floor(randomUnit() * 9000) + 1000)}`;
 }
@@ -463,11 +538,44 @@ function categoryLabel(character) {
   return character.categoryLabel || character.source;
 }
 
+function fighterTier(character) {
+  const peak = Math.max(character.strength, character.durability);
+  if (peak >= 11) return "boundless";
+  if (peak >= 10) return "outer";
+  if (peak >= 9) return "multiversal";
+  if (peak >= 7) return "cosmic";
+  if (peak >= 4) return "titan";
+  return "elite";
+}
+
+function statMarkup(character, compact = false) {
+  return `
+    <div class="fighter-stats${compact ? " is-compact" : ""}" aria-label="Strength ${escapeHtml(character.strengthLabel)}, durability ${escapeHtml(character.durabilityLabel)}, speed ${escapeHtml(character.speedLabel)}">
+      <span><i>STR</i><b>${escapeHtml(character.strengthLabel)}</b></span>
+      <span><i>DUR</i><b>${escapeHtml(character.durabilityLabel)}</b></span>
+      <span><i>SPD</i><b>${escapeHtml(character.speedLabel)}</b></span>
+    </div>
+  `;
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "0";
+  return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, "");
+}
+
+function battleHealthText(character, health) {
+  if (character?.durability === 11 && health > 0) return "∞";
+  return `${formatPercent(health)}%`;
+}
+
 function healthPercent(current, maximum) {
-  if (current === Infinity && maximum === Infinity) return 100;
-  if (current === 0n || maximum === 0n) return 0;
-  const tenths = Number((current * 1000n) / maximum) / 10;
-  return Math.max(1, Math.min(100, tenths));
+  const currentValue = Number(current);
+  const maximumValue = Number(maximum);
+  if (!Number.isFinite(currentValue) || !Number.isFinite(maximumValue) || maximumValue <= 0) return 0;
+  if (currentValue <= 0) return 0;
+  const percent = (currentValue / maximumValue) * 100;
+  return Math.max(0.5, Math.min(100, Math.round(percent * 10) / 10));
 }
 
 function focusWithoutScroll(element) {
@@ -514,7 +622,7 @@ function sideName(index) {
 }
 
 function resultWinnerName(winner) {
-  if (state.mode === "pass") return `PLAYER ${winner}`;
+  if (state.mode === "pass" || state.mode === "sandbox") return `PLAYER ${winner}`;
   if (state.mode === "bot") return winner === 1 ? "PLAYER 1" : "BOT";
   return winner - 1 === state.localPlayerIndex ? "YOU" : sideName(winner - 1).toUpperCase();
 }
@@ -524,6 +632,7 @@ function updateModeChrome() {
     pass: "PASS & PLAY",
     bot: "VS BOT",
     online: "ONLINE",
+    sandbox: "SANDBOX",
   };
   modePill.textContent = modeCopy[state.mode] || "CHOOSE MODE";
   sideOneLabel.textContent = sideName(0);
@@ -534,7 +643,9 @@ function updateModeChrome() {
     ? "RETURN TO LOBBIES"
     : state.mode === "bot"
       ? "PLAY BOT AGAIN"
-      : "RESET & SPIN AGAIN";
+      : state.mode === "sandbox"
+        ? "BUILD ANOTHER MATCHUP"
+        : "RESET & SPIN AGAIN";
 }
 
 function setOnlineStatus(message, stateName = "") {
@@ -884,7 +995,7 @@ async function hydratePortrait(root, character) {
 }
 
 function fighterCard(character, cardNumber = "", healthState = null) {
-  const tier = powerTier(character.power);
+  const tier = fighterTier(character);
   const card = document.createElement("article");
   card.className = "fighter-card";
   card.dataset.tier = tier;
@@ -892,20 +1003,16 @@ function fighterCard(character, cardNumber = "", healthState = null) {
   if (healthState) card.classList.add("has-health");
   const healthMarkup = healthState
     ? `
-      <div class="battle-health" role="progressbar" aria-label="${escapeHtml(character.name)} health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${healthPercent(healthState.current, healthState.maximum)}" aria-valuetext="${escapeHtml(`${formatHealth(healthState.current)} remaining`)}">
+      <div class="battle-health" role="progressbar" aria-label="${escapeHtml(character.name)} health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${healthPercent(healthState.current, healthState.maximum)}" aria-valuetext="${escapeHtml(`${battleHealthText(character, healthState.current)} remaining`)}">
         <div class="battle-health-copy">
           <span>HEALTH REMAINING</span>
-          <strong data-health-value>${escapeHtml(formatHealth(healthState.current))}</strong>
+          <strong data-health-value>${escapeHtml(battleHealthText(character, healthState.current))}</strong>
         </div>
         <div class="battle-health-track"><span data-health-fill style="width: ${healthPercent(healthState.current, healthState.maximum)}%"></span></div>
       </div>
+      ${statMarkup(character, true)}
     `
-    : `
-      <div class="power-readout" title="Fan-made power value: ${escapeHtml(character.power)}">
-        <span>POWER LEVEL</span>
-        <strong>${escapeHtml(formatPower(character.power))}</strong>
-      </div>
-    `;
+    : statMarkup(character);
   card.innerHTML = `
     <div class="fighter-portrait" data-portrait>
       <span class="fighter-fallback">${escapeHtml(initials(character.name))}</span>
@@ -924,6 +1031,7 @@ function fighterCard(character, cardNumber = "", healthState = null) {
   if (healthState) {
     card.combatMaximum = healthState.maximum;
     card.combatCurrent = healthState.current;
+    card.combatCharacter = character;
   }
   hydratePortrait(card, character);
   return card;
@@ -941,9 +1049,9 @@ function emergencyRevealCard(character) {
   name.textContent = character.name;
   const form = document.createElement("p");
   form.textContent = character.form;
-  const power = document.createElement("strong");
-  power.textContent = formatPower(character.power);
-  card.append(portrait, source, name, form, power);
+  const stats = document.createElement("strong");
+  stats.textContent = `STR ${character.strengthLabel} · DUR ${character.durabilityLabel} · SPD ${character.speedLabel}`;
+  card.append(portrait, source, name, form, stats);
   return card;
 }
 
@@ -956,15 +1064,16 @@ function updateCardHealth(slot, health, eliminated) {
   const value = $("[data-health-value]", card);
   const progress = $(".battle-health", card);
   fill.style.width = `${percent}%`;
-  value.textContent = formatHealth(health);
+  const character = card.combatCharacter;
+  value.textContent = battleHealthText(character, health);
   progress.setAttribute("aria-valuenow", String(percent));
-  progress.setAttribute("aria-valuetext", `${formatHealth(health)} remaining`);
+  progress.setAttribute("aria-valuetext", `${battleHealthText(character, health)} remaining`);
   card.classList.toggle("is-exhausted", eliminated);
   card.classList.toggle("is-survivor", !eliminated);
 }
 
 function lineupCard(character, rank) {
-  const tier = powerTier(character.power);
+  const tier = fighterTier(character);
   const card = document.createElement("article");
   card.className = "lineup-card";
   card.dataset.tier = tier;
@@ -977,20 +1086,24 @@ function lineupCard(character, rank) {
       <b>${escapeHtml(character.name)}</b>
       <small>${escapeHtml(character.form)}</small>
     </div>
-    <strong class="lineup-power">${escapeHtml(formatPower(character.power))}</strong>
+    <div class="lineup-stats" aria-label="Strength ${escapeHtml(character.strengthLabel)}, durability ${escapeHtml(character.durabilityLabel)}, speed ${escapeHtml(character.speedLabel)}">
+      <span><i>STR</i><b>${escapeHtml(character.strengthLabel)}</b></span>
+      <span><i>DUR</i><b>${escapeHtml(character.durabilityLabel)}</b></span>
+      <span><i>SPD</i><b>${escapeHtml(character.speedLabel)}</b></span>
+    </div>
   `;
   hydratePortrait(card, character);
   return card;
 }
 
 function lockedPickCard(character) {
-  const tier = powerTier(character.power);
+  const tier = fighterTier(character);
   const card = document.createElement("div");
   card.className = "locked-pick";
   card.style.setProperty("--tier", tierColors[tier]);
   card.innerHTML = `
     <div class="mini-avatar" data-portrait>${escapeHtml(initials(character.name))}</div>
-    <div><b>${escapeHtml(character.name)}</b><small>${escapeHtml(formatPower(character.power))}</small></div>
+    <div><b>${escapeHtml(character.name)}</b><small>STR ${escapeHtml(character.strengthLabel)} · DUR ${escapeHtml(character.durabilityLabel)} · SPD ${escapeHtml(character.speedLabel)}</small></div>
   `;
   hydratePortrait(card, character);
   return card;
@@ -1106,7 +1219,7 @@ async function spinCategory() {
   stageInstruction.textContent = `${category.label} LOCKED`;
   spinResult.textContent = `${category.label} selected · ${category.roster.length} elite forms in the pool.`;
   if (category.id === "games") sound.arcade();
-  else sound.reveal(category.id === "menace" ? "1e30" : "1e12");
+  else sound.reveal(category.id === "menace" ? 10 : 7);
 }
 
 async function spinCharacter() {
@@ -1161,7 +1274,7 @@ async function spinCharacter() {
   focusWithoutScroll(spinAction);
   stageInstruction.textContent = "POWER SIGNATURE FOUND";
   spinResult.textContent = `${state.selectedCharacter.name} answers the spin.`;
-  sound.reveal(state.selectedCharacter.power);
+  sound.reveal(Math.max(state.selectedCharacter.strength, state.selectedCharacter.durability));
   if (category.id === "games") sound.arcade();
 }
 
@@ -1170,7 +1283,7 @@ async function lockCharacter() {
   const token = state.flowToken;
   state.busy = true;
   spinAction.disabled = true;
-  sound.lock(state.selectedCharacter.power);
+  sound.lock(Math.max(state.selectedCharacter.strength, state.selectedCharacter.durability));
   const team = state.teams[state.activePlayer];
   team.push(state.selectedCharacter);
   state.used.add(state.selectedCharacter.id);
@@ -1265,10 +1378,267 @@ async function runBotDraft() {
   state.phase = "bot-ready";
   state.busy = false;
   const strongest = botTeam.reduce((best, fighter) => (
-    powerScore(fighter.power) > powerScore(best.power) ? fighter : best
+    Math.max(fighter.strength, fighter.durability) > Math.max(best.strength, best.durability) ? fighter : best
   ));
-  sound.reveal(strongest.power);
+  sound.reveal(Math.max(strongest.strength, strongest.durability));
   focusWithoutScroll(botRevealAction);
+}
+
+function setSandboxStatus(message, stateName = "building") {
+  sandboxStatus.textContent = message;
+  sandboxStatus.dataset.state = stateName;
+}
+
+function sandboxSelectedIds() {
+  return new Set(state.teams.flat().map(({ id }) => id));
+}
+
+function setSandboxSide(side) {
+  state.sandboxActiveSide = side === 1 ? 1 : 0;
+  sandboxTeamPanels.forEach((panel) => panel.classList.toggle("is-active", Number(panel.dataset.sandboxTeam) === state.sandboxActiveSide));
+  sandboxSideButtons.forEach((button) => button.setAttribute("aria-pressed", String(Number(button.dataset.sandboxSide) === state.sandboxActiveSide)));
+  renderSandboxRosterState();
+  const ready = state.teams.every((team) => team.length === 3);
+  setSandboxStatus(
+    ready
+      ? "Both squads are locked in entry order. Start the custom battle when ready."
+      : `Editing Team ${state.sandboxActiveSide + 1}. Choose fighters in the order they should enter.`,
+    ready ? "ready" : "building",
+  );
+}
+
+function renderSandboxTeam(side) {
+  const team = state.teams[side];
+  const count = $(`[data-sandbox-team-count="${side}"]`);
+  if (count) count.textContent = `${team.length} / 3`;
+  const clear = $(`[data-sandbox-clear-team="${side}"]`);
+  if (clear) clear.disabled = team.length === 0;
+  const slots = $$(`[data-sandbox-slots="${side}"] [data-sandbox-slot]`);
+  slots.forEach((slot, index) => {
+    const fighter = team[index];
+    slot.classList.toggle("is-filled", Boolean(fighter));
+    slot.disabled = !fighter;
+    if (!fighter) {
+      delete slot.dataset.fighterId;
+      slot.setAttribute("aria-label", `Team ${side + 1} empty slot ${index + 1}`);
+      slot.innerHTML = `<span>0${index + 1}</span><b>EMPTY SLOT</b><small>SELECT A FIGHTER</small>`;
+      return;
+    }
+    slot.dataset.fighterId = fighter.id;
+    slot.setAttribute("aria-label", `Remove ${fighter.name} from Team ${side + 1} slot ${index + 1}`);
+    slot.innerHTML = `
+      <span>0${index + 1}</span>
+      <div class="sandbox-slot-portrait" data-portrait>${escapeHtml(initials(fighter.name))}</div>
+      <b>${escapeHtml(fighter.name)}</b>
+      <small>${escapeHtml(fighter.form)}</small>
+    `;
+    hydratePortrait(slot, fighter);
+  });
+}
+
+function renderSandboxRosterState() {
+  const selected = sandboxSelectedIds();
+  const activeTeamFull = state.teams[state.sandboxActiveSide].length >= 3;
+  sandboxFighterNodes.forEach((node, id) => {
+    const button = $("[data-sandbox-pick]", node);
+    const selectedSide = state.teams[0].some((fighter) => fighter.id === id)
+      ? 0
+      : state.teams[1].some((fighter) => fighter.id === id)
+        ? 1
+        : -1;
+    const isSelected = selected.has(id);
+    node.classList.toggle("is-selected", isSelected);
+    node.dataset.selectedTeam = selectedSide >= 0 ? String(selectedSide) : "";
+    button.disabled = isSelected || activeTeamFull;
+    button.setAttribute("aria-pressed", String(isSelected));
+    $(".sandbox-fighter-add", node).textContent = selectedSide >= 0 ? `P${selectedSide + 1}` : "+";
+  });
+
+  renderSandboxTeam(0);
+  renderSandboxTeam(1);
+  const ready = state.teams.every((team) => team.length === 3);
+  sandboxStart.disabled = !ready;
+  if (ready) setSandboxStatus("Both squads are locked in entry order. Start the custom battle when ready.", "ready");
+}
+
+function addSandboxFighter(id) {
+  const fighter = fighterById.get(id);
+  const team = state.teams[state.sandboxActiveSide];
+  if (!fighter || sandboxSelectedIds().has(id)) return;
+  if (team.length >= 3) {
+    setSandboxStatus(`Team ${state.sandboxActiveSide + 1} already has three fighters. Remove one or edit the other team.`, "error");
+    return;
+  }
+  team.push({ ...fighter });
+  sound.tap();
+  if (team.length === 3 && state.teams[1 - state.sandboxActiveSide].length < 3) {
+    setSandboxSide(1 - state.sandboxActiveSide);
+  } else {
+    renderSandboxRosterState();
+    const ready = state.teams.every((sandboxTeam) => sandboxTeam.length === 3);
+    setSandboxStatus(
+      ready
+        ? "Both squads are locked in entry order. Start the custom battle when ready."
+        : `${fighter.name} added to Team ${state.sandboxActiveSide + 1} slot ${team.length}.`,
+      ready ? "ready" : "building",
+    );
+  }
+}
+
+function removeSandboxFighter(side, index) {
+  const team = state.teams[side];
+  if (!team[index]) return;
+  const [removed] = team.splice(index, 1);
+  state.sandboxActiveSide = side;
+  renderSandboxRosterState();
+  setSandboxSide(side);
+  setSandboxStatus(`${removed.name} removed from Team ${side + 1}.`, "building");
+}
+
+function shuffledFighters(excludedIds = new Set()) {
+  const pool = allFighters.filter(({ id }) => !excludedIds.has(id)).map((fighter) => ({ ...fighter }));
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomIndex(index + 1, randomUnit());
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+  return pool;
+}
+
+function randomizeSandboxTeam(side) {
+  const otherIds = new Set(state.teams[1 - side].map(({ id }) => id));
+  state.teams[side] = shuffledFighters(otherIds).slice(0, 3);
+  state.sandboxActiveSide = side;
+  sound.botDraft();
+  renderSandboxRosterState();
+  setSandboxSide(side);
+  const ready = state.teams.every((team) => team.length === 3);
+  setSandboxStatus(
+    ready
+      ? "Both squads are randomized and ready. Start the custom battle or edit any slot."
+      : `Team ${side + 1} randomized. Select a slot to remove a fighter or keep building.`,
+    ready ? "ready" : "building",
+  );
+}
+
+function randomizeSandboxMatch() {
+  const matchup = shuffledFighters().slice(0, 6);
+  state.teams = [matchup.slice(0, 3), matchup.slice(3, 6)];
+  sound.botDraft();
+  setSandboxSide(0);
+  setSandboxStatus("Six unique fighters randomized. Both teams are ready.", "ready");
+  focusWithoutScroll(sandboxStart);
+}
+
+function loadSandboxFighterImage(node, fighter) {
+  const image = $("[data-fighter-image]", node);
+  if (!image || image.dataset.requested === "true") return;
+  image.dataset.requested = "true";
+  getCharacterImage(fighter).then((source) => {
+    if (!source || !node.isConnected) return;
+    image.addEventListener("load", () => {
+      image.hidden = false;
+      node.classList.add("has-image");
+    }, { once: true });
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      node.classList.remove("has-image");
+    }, { once: true });
+    image.src = source;
+  });
+}
+
+function createSandboxFighterNode(fighter) {
+  const node = sandboxFighterTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.sandboxFighterId = fighter.id;
+  node.dataset.category = fighter.categoryId;
+  const button = $("[data-sandbox-pick]", node);
+  button.setAttribute("aria-label", `Add ${fighter.name}, ${fighter.form}, to the active team`);
+  const art = $(".sandbox-fighter-art", node);
+  const fallback = document.createElement("b");
+  fallback.className = "sandbox-fighter-initials";
+  fallback.textContent = initials(fighter.name);
+  art.prepend(fallback);
+  const image = $("[data-fighter-image]", node);
+  image.alt = `${fighter.name}, ${fighter.form}`;
+  image.hidden = true;
+  $("[data-fighter-category]", node).textContent = categoryLabel(fighter);
+  $("[data-fighter-name]", node).textContent = fighter.name;
+  $("[data-fighter-form]", node).textContent = fighter.form;
+  $("[data-fighter-strength]", node).textContent = fighter.strengthLabel;
+  $("[data-fighter-durability]", node).textContent = fighter.durabilityLabel;
+  $("[data-fighter-speed]", node).textContent = fighter.speedLabel;
+  button.addEventListener("click", () => addSandboxFighter(fighter.id));
+  sandboxFighterNodes.set(fighter.id, node);
+  return node;
+}
+
+function filterSandboxRoster() {
+  const filter = sandboxFilter.value;
+  const query = normalizedLookup(sandboxSearch.value);
+  let count = 0;
+  allFighters.forEach((fighter) => {
+    const node = sandboxFighterNodes.get(fighter.id);
+    const categoryMatches = filter === "all" || fighter.categoryId === filter;
+    const textMatches = !query || normalizedLookup(`${fighter.name} ${fighter.form}`).includes(query);
+    const visible = categoryMatches && textMatches;
+    node.hidden = !visible;
+    if (visible) count += 1;
+  });
+  sandboxResultsCount.textContent = String(count);
+  sandboxEmpty.hidden = count !== 0;
+  sandboxClearSearch.disabled = !sandboxSearch.value;
+}
+
+function initializeSandboxRoster() {
+  if (sandboxFighterNodes.size) return;
+  const nodes = allFighters.map(createSandboxFighterNode);
+  sandboxRoster.replaceChildren(...nodes);
+  sandboxRoster.setAttribute("aria-busy", "false");
+  if ("IntersectionObserver" in window) {
+    sandboxImageObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const fighter = fighterById.get(entry.target.dataset.sandboxFighterId);
+        if (fighter) loadSandboxFighterImage(entry.target, fighter);
+        sandboxImageObserver.unobserve(entry.target);
+      });
+    }, { root: sandboxRoster, rootMargin: "180px" });
+    nodes.forEach((node) => sandboxImageObserver.observe(node));
+  } else {
+    nodes.forEach((node) => {
+      const fighter = fighterById.get(node.dataset.sandboxFighterId);
+      if (fighter) loadSandboxFighterImage(node, fighter);
+    });
+  }
+}
+
+function openSandbox() {
+  state.flowToken += 1;
+  state.battleToken += 1;
+  sound.stopAll();
+  sound.arm();
+  resetState();
+  state.mode = "sandbox";
+  state.playerNames = ["PLAYER 1", "PLAYER 2"];
+  state.sandboxActiveSide = 0;
+  updateModeChrome();
+  initializeSandboxRoster();
+  sandboxFilter.value = "all";
+  sandboxSearch.value = "";
+  filterSandboxRoster();
+  renderSandboxRosterState();
+  setSandboxSide(0);
+  showScreen("sandbox-screen");
+}
+
+function startSandboxBattle() {
+  if (state.teams.some((team) => team.length !== 3)) {
+    setSandboxStatus("Choose three fighters for each team before starting.", "error");
+    return;
+  }
+  state.used = new Set(state.teams.flat().map(({ id }) => id));
+  sound.lock(Math.max(...state.teams.flat().map(({ strength, durability }) => Math.max(strength, durability))));
+  prepareReveal();
 }
 
 function onlineMessage(detail, fallback) {
@@ -1620,8 +1990,8 @@ function continueHandoff() {
 }
 
 function peakLabel(team) {
-  const highest = team.reduce((best, character) => (powerScore(character.power) > powerScore(best.power) ? character : best));
-  return `PEAK ${formatPower(highest.power)}`;
+  const highest = team.reduce((best, character) => (character.strength > best.strength ? character : best));
+  return `PEAK ${highest.strengthLabel.toUpperCase()} STR`;
 }
 
 function prepareReveal() {
@@ -1631,56 +2001,152 @@ function prepareReveal() {
   }
   sound.stopAll();
   updateModeChrome();
-  state.battle = resolveBattle(state.teams[0], state.teams[1]);
+  state.battle = resolveBattle(state.teams[0], state.teams[1], seededBattleRandom(state.teams[0], state.teams[1]));
   p1Lineup.replaceChildren(...state.battle.sortedOne.map((character, index) => lineupCard(character, index + 1)));
   p2Lineup.replaceChildren(...state.battle.sortedTwo.map((character, index) => lineupCard(character, index + 1)));
   p1Total.textContent = peakLabel(state.battle.sortedOne);
   p2Total.textContent = peakLabel(state.battle.sortedTwo);
   showScreen("reveal-screen");
-  sound.reveal(
-    powerScore(state.battle.sortedOne[0].power) > powerScore(state.battle.sortedTwo[0].power)
-      ? state.battle.sortedOne[0].power
-      : state.battle.sortedTwo[0].power,
-  );
+  sound.reveal(Math.max(...state.teams.flat().map(({ strength, durability }) => Math.max(strength, durability))));
   return true;
 }
 
-function setVerdict(clash) {
+const immunityTaunts = Object.freeze([
+  "That tickles.",
+  "Seriously?",
+  "Was that supposed to hurt?",
+  "…",
+  "Try again.",
+]);
+
+function eventFighters(event) {
+  return {
+    left: state.battle.sortedOne[event.leftIndex],
+    right: state.battle.sortedTwo[event.rightIndex],
+  };
+}
+
+function matchupForEvent(event) {
+  return state.battle.timeline[event.round - 1];
+}
+
+function eventRemaining(event, side) {
+  const team = side === 1 ? state.battle.sortedOne : state.battle.sortedTwo;
+  const index = side === 1 ? event.leftIndex : event.rightIndex;
+  const health = side === 1 ? event.leftHealthAfter : event.rightHealthAfter;
+  return Math.max(0, team.length - index - (health <= 0 ? 1 : 0));
+}
+
+function showDefeatStamp(text) {
+  defeatStamp.textContent = text;
+  clashArena.classList.remove("show-defeat");
+  void defeatStamp.offsetWidth;
+  clashArena.classList.add("show-defeat");
+}
+
+function setEventPreview(event, matchup) {
   clashVerdict.className = "clash-verdict";
-  clashVerdict.dataset.severity = clash.severity;
+  clashVerdict.dataset.severity = matchup.severity;
   clashVerdict.style.removeProperty("--winner-color");
   const eyebrow = $("span", clashVerdict);
   const headline = $("strong", clashVerdict);
+  const { left, right } = eventFighters(event);
 
-  if (clash.reason === "boundless-nullification") {
+  if (event.type === "boundless-clash") {
     clashVerdict.classList.add("is-null");
-    eyebrow.textContent = "BOUNDLESS × BOUNDLESS";
-    headline.textContent = "MUTUAL NULLIFICATION — BOTH CANCELLED";
-    battleAnnouncer.textContent = headline.textContent;
-    return;
+    eyebrow.textContent = "BOUNDLESS STRENGTH × BOUNDLESS DURABILITY";
+    headline.textContent = "“LET’S USE EVERY LAST DROP.” · “JUST THIS ONCE.”";
+  } else if (event.type === "power-clash") {
+    clashVerdict.classList.add("is-win");
+    eyebrow.textContent = `${left.strengthLabel.toUpperCase()} STR × ${right.strengthLabel.toUpperCase()} STR`;
+    headline.textContent = "POWER CLASH · ATTACKS COLLIDE";
+  } else if (event.type === "stalemate") {
+    clashVerdict.classList.add("is-null");
+    eyebrow.textContent = "0 DAMAGE · 0 DAMAGE";
+    headline.textContent = "IMMOVABLE STALEMATE";
+  } else {
+    const attacker = event.attacker === 1 ? left : right;
+    const defender = event.defender === 1 ? left : right;
+    clashVerdict.classList.add("is-win");
+    clashVerdict.style.setProperty("--winner-color", event.attacker === 1 ? "var(--p1)" : "var(--p2)");
+    eyebrow.textContent = event.blitzType
+      ? `${event.blitzType === "extreme-blitz" ? "EXTREME BLITZ" : "SPEED BLITZ"} · HIT ${event.blitzHit} OF ${event.blitzHits}`
+      : `${attacker.strengthLabel.toUpperCase()} STR → ${defender.durabilityLabel.toUpperCase()} DUR`;
+    headline.textContent = event.immune
+      ? `${attacker.name.toUpperCase()} ATTACKS · NO EFFECT`
+      : event.oneShot
+        ? "OVERWHELMING POWER!"
+        : `${attacker.name.toUpperCase()} ATTACKS`;
   }
-  if (clash.winner === 0) {
+  battleAnnouncer.textContent = `${eyebrow.textContent}. ${headline.textContent}`;
+}
+
+function setEventVerdict(event, matchup) {
+  const eyebrow = $("span", clashVerdict);
+  const headline = $("strong", clashVerdict);
+  const { left, right } = eventFighters(event);
+
+  if (event.type === "boundless-clash") {
     clashVerdict.classList.add("is-null");
-    eyebrow.textContent = `${formatHealth(clash.leftHealthBefore)} = ${formatHealth(clash.rightHealthBefore)}`;
-    headline.textContent = "EQUAL HEALTH — DOUBLE KNOCKOUT";
-    battleAnnouncer.textContent = headline.textContent;
-    return;
+    eyebrow.textContent = "∞ → ??? → 0";
+    headline.textContent = "BOUNDLESS CLASH · DOUBLE KO";
+  } else if (event.type === "power-clash") {
+    eyebrow.textContent = `P1 −${formatPercent(event.leftDamage)}% · P2 −${formatPercent(event.rightDamage)}%`;
+    const eliminated = event.leftHealthAfter <= 0 ? left : event.rightHealthAfter <= 0 ? right : null;
+    headline.textContent = eliminated
+      ? `POWER CLASH KO · ${eliminated.name.toUpperCase()} FALLS`
+      : "BOTH TAKE HALF DAMAGE · TURN ORDER ROLLED";
+  } else if (event.type === "stalemate") {
+    eyebrow.textContent = "NEITHER FIGHTER CAN DAMAGE THE OTHER";
+    headline.textContent = "STALEMATE · MATCH DRAWN";
+  } else {
+    const attacker = event.attacker === 1 ? left : right;
+    const defender = event.defender === 1 ? left : right;
+    const defenderHealth = event.defender === 1 ? event.leftHealthAfter : event.rightHealthAfter;
+    if (event.immune) {
+      const taunt = immunityTaunts[(event.sequence * 7 + event.round) % immunityTaunts.length];
+      eyebrow.textContent = "BOUNDLESS DURABILITY · 0 DAMAGE";
+      headline.textContent = `${defender.name.toUpperCase()}: “${taunt}”`;
+    } else if (event.oneShot) {
+      eyebrow.textContent = `${attacker.name.toUpperCase()} DEALS ${formatPercent(event.damage)}% DAMAGE`;
+      headline.textContent = `ONE SHOT · ${defender.name.toUpperCase()} ERASED`;
+    } else {
+      eyebrow.textContent = `${attacker.name.toUpperCase()} DEALS ${formatPercent(event.damage)}% DAMAGE`;
+      headline.textContent = `${defender.name.toUpperCase()} · ${battleHealthText(defender, defenderHealth)} REMAINS`;
+    }
   }
 
-  clashVerdict.classList.add("is-win");
-  const winner = clash.winner === 1 ? clash.left : clash.right;
-  const winnerBefore = clash.winner === 1 ? clash.leftHealthBefore : clash.rightHealthBefore;
-  const loserBefore = clash.winner === 1 ? clash.rightHealthBefore : clash.leftHealthBefore;
-  const winnerAfter = clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter;
-  const verdict = clash.verdict === "boundless-overmatch" ? "BOUNDLESS SOLO" : severityCopy[clash.severity] || "VICTORY";
-  clashVerdict.style.setProperty("--winner-color", clash.winner === 1 ? "var(--p1)" : "var(--p2)");
-  eyebrow.textContent = `${formatHealth(winnerBefore)} − ${formatHealth(loserBefore)}`;
-  headline.textContent = `${verdict} · ${winner.name.toUpperCase()} HOLDS ${formatHealth(winnerAfter)} HEALTH`;
-  battleAnnouncer.textContent = headline.textContent;
-  if (clash.severity === "brutal" || clash.severity === "soloed") {
-    defeatStamp.textContent = clash.severity === "soloed" ? "SOLOED" : "BRUTAL";
-    clashArena.classList.add("show-defeat");
+  const defenderEliminated = event.type === "attack"
+    && (event.defender === 1 ? event.leftHealthAfter <= 0 : event.rightHealthAfter <= 0);
+  if (defenderEliminated && (matchup.severity === "brutal" || matchup.severity === "soloed")) {
+    showDefeatStamp(matchup.severity === "soloed" ? "SOLOED" : "BRUTAL");
   }
+  battleAnnouncer.textContent = `${eyebrow.textContent}. ${headline.textContent}`;
+}
+
+function setEventEffects(event, matchup, isLastStand) {
+  clashArena.classList.remove(
+    "is-impact",
+    "show-defeat",
+    "is-speed-blitz",
+    "is-extreme-blitz",
+    "is-power-clash",
+    "is-boundless-clash",
+    "is-immune",
+    "is-last-stand",
+    ...severityClasses,
+  );
+  clashArena.style.removeProperty("--winner-color");
+  clashArena.classList.add(`severity-${matchup.severity}`);
+  if (event.blitzType === "speed-blitz") clashArena.classList.add("is-speed-blitz");
+  if (event.blitzType === "extreme-blitz") clashArena.classList.add("is-extreme-blitz");
+  if (event.type === "power-clash") clashArena.classList.add("is-power-clash");
+  if (event.type === "boundless-clash") clashArena.classList.add("is-boundless-clash");
+  if (event.immune) clashArena.classList.add("is-immune");
+  if (isLastStand) clashArena.classList.add("is-last-stand");
+  if (event.attacker) clashArena.style.setProperty("--winner-color", event.attacker === 1 ? "var(--p1)" : "var(--p2)");
+  defeatStamp.textContent = "";
+  setEventPreview(event, matchup);
 }
 
 async function playBattle() {
@@ -1689,65 +2155,108 @@ async function playBattle() {
   showScreen("battle-screen");
   battleScoreOne.textContent = String(state.battle.sortedOne.length);
   battleScoreTwo.textContent = String(state.battle.sortedTwo.length);
-  clashTotal.textContent = `/ ${String(state.battle.timeline.length).padStart(2, "0")}`;
+  clashTotal.textContent = `/ ${String(state.battle.events.length).padStart(2, "0")}`;
   skipBattle.disabled = false;
   sound.stopAll();
   sound.battleStart();
+  let activeRound = 0;
 
-  for (let index = 0; index < state.battle.timeline.length; index += 1) {
+  for (let index = 0; index < state.battle.events.length; index += 1) {
     if (token !== state.battleToken) return;
-    const clash = state.battle.timeline[index];
-    const leftMaximum = powerToHealth(clash.left.power);
-    const rightMaximum = powerToHealth(clash.right.power);
-    const leftContinuing = clash.leftHealthBefore !== leftMaximum;
-    const rightContinuing = clash.rightHealthBefore !== rightMaximum;
-    clashNumber.textContent = `0${index + 1}`;
-    battleScoreOne.textContent = String(state.battle.sortedOne.length - clash.leftIndex);
-    battleScoreTwo.textContent = String(state.battle.sortedTwo.length - clash.rightIndex);
-    battleCardOne.replaceChildren(fighterCard(
-      clash.left,
-      leftContinuing ? "P1 · SURVIVOR" : `P1 · #${clash.leftIndex + 1}`,
-      { current: clash.leftHealthBefore, maximum: leftMaximum },
-    ));
-    battleCardTwo.replaceChildren(fighterCard(
-      clash.right,
-      rightContinuing ? "P2 · SURVIVOR" : `P2 · #${clash.rightIndex + 1}`,
-      { current: clash.rightHealthBefore, maximum: rightMaximum },
-    ));
-    clashArena.classList.remove("is-loaded", "is-impact", "show-defeat", ...severityClasses);
-    clashArena.style.removeProperty("--winner-color");
-    if (clash.winner) clashArena.style.setProperty("--winner-color", clash.winner === 1 ? "var(--p1)" : "var(--p2)");
-    clashArena.classList.add(`severity-${clash.severity}`);
-    defeatStamp.textContent = "";
-    battleAnnouncer.textContent = "";
-    clashVerdict.className = "clash-verdict";
-    delete clashVerdict.dataset.severity;
-    clashVerdict.style.removeProperty("--winner-color");
-    $("span", clashVerdict).textContent = "POWER READINGS LOCKED";
-    $("strong", clashVerdict).textContent = "PREPARE FOR IMPACT";
-    void clashArena.offsetWidth;
-    requestAnimationFrame(() => clashArena.classList.add("is-loaded"));
-    sound.charge(clash.severity);
+    const event = state.battle.events[index];
+    const matchup = matchupForEvent(event);
+    const { left, right } = eventFighters(event);
+    const newRound = event.round !== activeRound;
+    const isLastStand = newRound && (event.leftLastStand || event.rightLastStand);
+    clashNumber.textContent = String(index + 1).padStart(2, "0");
 
-    await wait(motionTime(760, 45));
-    if (token !== state.battleToken) return;
-    clashArena.classList.add("is-impact");
-    sound.impact(clash.leftHealthBefore, clash.rightHealthBefore, clash.severity);
-
-    await wait(motionTime(690, 45));
-    if (token !== state.battleToken) return;
-    updateCardHealth(battleCardOne, clash.leftHealthAfter, clash.leftEliminated);
-    updateCardHealth(battleCardTwo, clash.rightHealthAfter, clash.rightEliminated);
-    setVerdict(clash);
-    battleScoreOne.textContent = String(clash.remainingOne);
-    battleScoreTwo.textContent = String(clash.remainingTwo);
-    if (clash.reason === "boundless-nullification") sound.nullify();
-    else {
-      sound.drain(true);
-      sound.defeat(clash.severity, clash.winner);
+    if (newRound) {
+      activeRound = event.round;
+      if (isLastStand) {
+        clashArena.dataset.lastStand = event.leftLastStand && event.rightLastStand
+          ? "both"
+          : event.leftLastStand
+            ? "left"
+            : "right";
+      } else {
+        delete clashArena.dataset.lastStand;
+      }
+      battleCardOne.replaceChildren(fighterCard(
+        left,
+        event.leftHealthBefore < 100 ? "P1 · SURVIVOR" : `P1 · #${event.leftIndex + 1}`,
+        { current: event.leftHealthBefore, maximum: 100 },
+      ));
+      battleCardTwo.replaceChildren(fighterCard(
+        right,
+        event.rightHealthBefore < 100 ? "P2 · SURVIVOR" : `P2 · #${event.rightIndex + 1}`,
+        { current: event.rightHealthBefore, maximum: 100 },
+      ));
+      clashArena.classList.remove("is-loaded");
+      void clashArena.offsetWidth;
+      requestAnimationFrame(() => clashArena.classList.add("is-loaded"));
+      if (isLastStand) {
+        clashArena.classList.add("is-last-stand");
+        const doubleLastStand = clashArena.dataset.lastStand === "both";
+        showDefeatStamp(doubleLastStand ? "DOUBLE LAST STAND" : "LAST STAND");
+        battleAnnouncer.textContent = doubleLastStand
+          ? `${sideName(0)} and ${sideName(1)} send out their final fighters. Double last stand.`
+          : `${event.leftLastStand ? sideName(0) : sideName(1)} sends out the final fighter. Last stand.`;
+        sound.handoff();
+      }
+      await wait(motionTime(isLastStand ? 850 : 520, 30));
+      if (token !== state.battleToken) return;
     }
 
-    await wait(motionTime(1280, 55));
+    battleScoreOne.textContent = String(state.battle.sortedOne.length - event.leftIndex);
+    battleScoreTwo.textContent = String(state.battle.sortedTwo.length - event.rightIndex);
+    setEventEffects(event, matchup, isLastStand);
+
+    if (event.type === "boundless-clash") {
+      sound.stopAll();
+      await wait(motionTime(520, 35));
+      if (token !== state.battleToken) return;
+      showDefeatStamp("3 · 2 · 1");
+      sound.boundlessClash();
+      await wait(motionTime(940, 35));
+    } else {
+      if (event.blitzHit === 1) sound.blitz(event.blitzType === "extreme-blitz");
+      else sound.charge(matchup.severity);
+      await wait(motionTime(330, 25));
+    }
+    if (token !== state.battleToken) return;
+
+    clashArena.classList.add("is-impact");
+    if (event.type === "boundless-clash") {
+      showDefeatStamp("CLASH");
+      sound.boundlessClash();
+    } else if (event.type === "power-clash") {
+      sound.powerClash();
+    } else if (event.type === "stalemate" || event.immune) {
+      sound.immune();
+    } else {
+      const attacker = event.attacker === 1 ? left : right;
+      const defender = event.defender === 1 ? left : right;
+      sound.impact(attacker.strength, defender.durability, matchup.severity);
+    }
+
+    await wait(motionTime(event.type === "boundless-clash" ? 820 : 420, 30));
+    if (token !== state.battleToken) return;
+    updateCardHealth(battleCardOne, event.leftHealthAfter, event.leftHealthAfter <= 0);
+    updateCardHealth(battleCardTwo, event.rightHealthAfter, event.rightHealthAfter <= 0);
+    setEventVerdict(event, matchup);
+    battleScoreOne.textContent = String(eventRemaining(event, 1));
+    battleScoreTwo.textContent = String(eventRemaining(event, 2));
+
+    if (event.type === "boundless-clash") {
+      showDefeatStamp("DOUBLE KO");
+      sound.nullify();
+    } else if (event.type === "attack") {
+      const defenderEliminated = event.defender === 1 ? event.leftHealthAfter <= 0 : event.rightHealthAfter <= 0;
+      sound.drain(defenderEliminated);
+      if (defenderEliminated) sound.defeat(matchup.severity, event.attacker);
+    }
+
+    await wait(motionTime(event.type === "boundless-clash" ? 1450 : 760, 35));
   }
 
   if (token !== state.battleToken) return;
@@ -1766,12 +2275,14 @@ function showResult() {
   resultTitle.style.color = isDraw ? "var(--paper)" : battle.winner === 1 ? "var(--p1)" : "var(--p2)";
   resultScore.textContent = `${battle.survivorsOne.length} — ${battle.survivorsTwo.length}`;
   if (isDraw) {
-    resultCopy.textContent = "Every fighter is exhausted or cancelled. No health remains on either side.";
+    resultCopy.textContent = battle.stalemate
+      ? "Neither active fighter could damage the other. The matchup ends in an immovable stalemate."
+      : "Every fighter is exhausted or erased. No combatants remain on either side.";
   } else {
     const survivors = battle.winner === 1 ? battle.survivorsOne : battle.survivorsTwo;
     const lead = survivors[0];
     const reserveCount = Math.max(0, survivors.length - 1);
-    resultCopy.textContent = `${lead.name} finishes with ${formatHealth(lead.health)} health${reserveCount ? ` and ${reserveCount} fighter${reserveCount === 1 ? "" : "s"} still in reserve` : ""}.`;
+    resultCopy.textContent = `${lead.name} finishes with ${battleHealthText(lead, lead.health)} health${reserveCount ? ` and ${reserveCount} fighter${reserveCount === 1 ? "" : "s"} still in reserve` : ""}.`;
   }
 
   resultGrid.replaceChildren();
@@ -1779,11 +2290,20 @@ function showResult() {
     const row = document.createElement("div");
     row.className = "result-row";
     row.dataset.severity = clash.severity;
-    const label = clash.reason === "boundless-nullification"
-      ? "NULLIFIED"
-      : clash.winner === 0
-        ? "DOUBLE KO"
-        : `P${clash.winner} ${severityCopy[clash.severity]} · ${formatHealth(clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter)} LEFT`;
+    const special = clash.reason === "boundless-nullification"
+      ? "BOUNDLESS CLASH · DOUBLE KO"
+      : clash.stalemate
+        ? "IMMOVABLE STALEMATE"
+        : clash.verdict === "extreme-blitz"
+          ? "EXTREME BLITZ"
+          : clash.verdict === "speed-blitz"
+            ? "SPEED BLITZ"
+            : severityCopy[clash.severity] || "VICTORY";
+    const winningFighter = clash.winner === 1 ? clash.left : clash.right;
+    const winningHealth = clash.winner === 1 ? clash.leftHealthAfter : clash.rightHealthAfter;
+    const label = clash.winner === 0
+      ? special
+      : `P${clash.winner} ${special} · ${battleHealthText(winningFighter, winningHealth)} LEFT`;
     row.innerHTML = `
       <span>${escapeHtml(clash.left.name)}</span>
       <b class="${clash.winner ? "win" : ""}">0${index + 1} · ${label}</b>
@@ -1805,6 +2325,30 @@ function handleSpinAction() {
 startGameButton.addEventListener("click", () => startNewGame("pass"));
 startBotButton.addEventListener("click", () => startNewGame("bot"));
 openOnlineButton.addEventListener("click", () => openOnlineBrowser());
+startSandboxButton.addEventListener("click", openSandbox);
+sandboxBack.addEventListener("click", returnToModeSelection);
+sandboxSideButtons.forEach((button) => button.addEventListener("click", () => setSandboxSide(Number(button.dataset.sandboxSide))));
+sandboxRandomTeamButtons.forEach((button) => button.addEventListener("click", () => randomizeSandboxTeam(Number(button.dataset.sandboxRandomTeam))));
+sandboxClearTeamButtons.forEach((button) => button.addEventListener("click", () => {
+  const side = Number(button.dataset.sandboxClearTeam);
+  state.teams[side] = [];
+  state.sandboxActiveSide = side;
+  renderSandboxRosterState();
+  setSandboxSide(side);
+  setSandboxStatus(`Team ${side + 1} cleared. Choose three fighters in entry order.`, "building");
+}));
+$$('[data-sandbox-slot]').forEach((slot) => slot.addEventListener("click", () => {
+  removeSandboxFighter(Number(slot.dataset.sandboxTeam), Number(slot.dataset.slotIndex));
+}));
+sandboxRandomAll.addEventListener("click", randomizeSandboxMatch);
+sandboxFilter.addEventListener("change", filterSandboxRoster);
+sandboxSearch.addEventListener("input", filterSandboxRoster);
+sandboxClearSearch.addEventListener("click", () => {
+  sandboxSearch.value = "";
+  filterSandboxRoster();
+  focusWithoutScroll(sandboxSearch);
+});
+sandboxStart.addEventListener("click", startSandboxBattle);
 spinAction.addEventListener("click", handleSpinAction);
 handoffAction.addEventListener("click", continueHandoff);
 botRevealAction.addEventListener("click", prepareReveal);
@@ -1818,6 +2362,7 @@ skipBattle.addEventListener("click", () => {
 });
 resetGameButton.addEventListener("click", () => {
   if (state.mode === "online") leaveOnlineMatchToBrowser();
+  else if (state.mode === "sandbox") openSandbox();
   else startNewGame(state.mode);
 });
 reviewLineups.addEventListener("click", prepareReveal);
@@ -1871,6 +2416,7 @@ document.addEventListener("keydown", (event) => {
       "draft-screen": spinAction,
       "handoff-screen": handoffAction,
       "bot-draft-screen": botRevealAction.hidden ? null : botRevealAction,
+      "sandbox-screen": sandboxStart,
       "reveal-screen": beginBattle,
     }[current];
     if (action && !action.disabled) {

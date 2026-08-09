@@ -1,7 +1,7 @@
 const TRYSTERO_MODULE_URL = "https://esm.run/@trystero-p2p/mqtt@0.25.3";
-const TRYSTERO_CONFIG = Object.freeze({ appId: "1v1spinnerfighter-online-v1" });
-const DIRECTORY_ROOM = "1v1sf-directory-v1";
-const MATCH_ROOM_PREFIX = "1v1sf-match-v1-";
+const TRYSTERO_CONFIG = Object.freeze({ appId: "1v1spinnerfighter-online-v2" });
+const DIRECTORY_ROOM = "1v1sf-directory-v2";
+const MATCH_ROOM_PREFIX = "1v1sf-match-v2-";
 
 const ACTION_ADVERT = "lobbyad";
 const ACTION_DIRECTORY_HELLO = "dirhello";
@@ -17,7 +17,7 @@ const ADVERT_STALE_MS = 15_000;
 const MAX_CLOCK_SKEW_MS = 60_000;
 const JOIN_TIMEOUT_MS = 10_000;
 
-export const ONLINE_PROTOCOL_VERSION = 1;
+export const ONLINE_PROTOCOL_VERSION = 2;
 
 function makeCustomEvent(type, detail) {
   if (typeof globalThis.CustomEvent === "function") {

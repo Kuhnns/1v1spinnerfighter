@@ -185,7 +185,7 @@ async function withDeadline(promise, label) {
   }
 }
 
-assert.equal(ONLINE_PROTOCOL_VERSION, 1);
+assert.equal(ONLINE_PROTOCOL_VERSION, 2);
 assert.equal(normalizeLobbyCode(" ab-cd ef "), "ABCDEF");
 assert.equal(normalizeLobbyCode("abodef"), "", "ambiguous O must be rejected");
 assert.equal(normalizeLobbyCode("ABCDE1"), "", "ambiguous 1 must be rejected");
